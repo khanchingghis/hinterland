@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { ChevronDown, ChevronUp, PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -36,6 +37,7 @@ import {
   spanLimitMessage,
   type BBox,
 } from "@/lib/roads";
+import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
 type LegendMode = "world" | "study";
@@ -52,19 +54,15 @@ type StudyState = {
   signature: string;
 };
 
-type WorldField = {
-  width: number;
-  height: number;
-  data: Uint8ClampedArray;
-};
-
 const FAR_IDS = ["far", "remote", "wild"];
+const GUIDE_STORAGE_KEY = "hinterland-guide-open";
 
 export function Explorer() {
   const mapRef = useRef<MapStageHandle>(null);
   const gridRef = useRef<LocalGrid | null>(null);
   const roadsRef = useRef<RoadLine[]>([]);
   const fieldRef = useRef<WorldField | null>(null);
+  const [worldField, setWorldField] = useState<WorldField | null>(null);
   const hoverRef = useRef("");
   const [meta, setMeta] = useState<WorldMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -82,7 +80,36 @@ export function Explorer() {
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState("Move across the map");
   const [fieldReady, setFieldReady] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return localStorage.getItem(GUIDE_STORAGE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [isWide, setIsWide] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 960px)");
+    const onChange = () => setIsWide(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  const setGuideOpenPersisted = useCallback((open: boolean) => {
+    setGuideOpen(open);
+    try {
+      localStorage.setItem(GUIDE_STORAGE_KEY, String(open));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const guideBottomInset = isWide ? 16 : guideOpen ? 220 : 56;
+  const worldTileMaxZoom = meta?.tileMaxZoom ?? 5;
 
   useEffect(() => {
     let cancelled = false;
@@ -117,7 +144,9 @@ export function Explorer() {
       context.drawImage(bitmap, 0, 0);
       const image = context.getImageData(0, 0, canvas.width, canvas.height);
       if (cancelled) return;
-      fieldRef.current = { width: canvas.width, height: canvas.height, data: image.data };
+      const loaded = { width: canvas.width, height: canvas.height, data: image.data };
+      fieldRef.current = loaded;
+      setWorldField(loaded);
       setFieldReady(true);
     };
     void load();
@@ -177,7 +206,7 @@ export function Explorer() {
     }
     const field = fieldRef.current;
     if (!field) return null;
-    const sample = sampleWorldField(field, lngLat.lng, lngLat.lat);
+    const sample = sampleWorldField(field, lngLat.lng, lngLat.lat, meta?.kmStep ?? 20);
     if (sample.kind === "water") return { title: "Open water", body: "Ocean is left unpainted" };
     if (hideIce && sample.ice) return { title: "Ice sheet", body: "Hidden on this layer" };
     const band = WORLD_BANDS[sample.band];
@@ -309,6 +338,10 @@ export function Explorer() {
         ref={mapRef}
         hideIce={hideIce}
         opacity={opacity / 100}
+        worldField={worldField}
+        worldTileMaxZoom={worldTileMaxZoom}
+        studyActive={study != null}
+        guideBottomInset={guideBottomInset}
         onView={setView}
         onHover={handleHover}
         onClick={handleClick}
@@ -318,10 +351,40 @@ export function Explorer() {
         <p className="tabular-nums">{hover}</p>
       </div>
 
+      {!guideOpen && (
+        <button
+          type="button"
+          className="absolute z-20 flex items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm font-medium text-[#241c14] shadow-md backdrop-blur-md bottom-3 left-3 md:top-3 md:bottom-auto"
+          onClick={() => setGuideOpenPersisted(true)}
+          aria-expanded={false}
+          aria-label="Open map guide and legend"
+        >
+          <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
+          Guide
+        </button>
+      )}
+
+      {guideOpen && (
       <aside className="absolute inset-x-3 bottom-3 z-20 flex max-h-[min(54vh,580px)] flex-col overflow-hidden rounded-2xl border border-black/10 bg-[#f6f1e7]/95 shadow-[0_18px_50px_rgba(42,32,18,0.18)] backdrop-blur-md md:inset-x-auto md:top-3 md:bottom-3 md:left-3 md:w-[372px] md:max-h-none">
         <div className="shrink-0 px-4 pt-4 pb-3">
-          <p className="text-[11px] tracking-[0.16em] text-[#7a6d5d] uppercase">Distance from a road</p>
-          <h1 className="font-display mt-1 text-[2rem] leading-none text-[#241c14]">Hinterland</h1>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] tracking-[0.16em] text-[#7a6d5d] uppercase">Distance from a road</p>
+              <h1 className="font-display mt-1 text-[2rem] leading-none text-[#241c14]">Hinterland</h1>
+            </div>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="shrink-0 text-[#5c5348]"
+              onClick={() => setGuideOpenPersisted(false)}
+              aria-expanded={true}
+              aria-label="Minimize guide and legend"
+            >
+              <ChevronDown className="size-4 md:hidden" aria-hidden />
+              <ChevronUp className="hidden size-4 md:block" aria-hidden />
+            </Button>
+          </div>
           <p className="mt-2 text-sm leading-5 text-[#5c5348]">
             Land sorted by straight-line distance to the nearest road. Warm is close. Deep teal and ink are far.
           </p>
@@ -633,6 +696,7 @@ export function Explorer() {
           </div>
         </ScrollArea>
       </aside>
+      )}
     </div>
   );
 }
@@ -697,24 +761,3 @@ function roadTypeLabel(type: string): string {
   }
 }
 
-function sampleWorldField(
-  field: WorldField,
-  lon: number,
-  lat: number,
-): { kind: "water" } | { kind: "land"; band: number; km: number; ice: boolean } {
-  let x = Math.floor(((lon + 180) / 360) * field.width);
-  let y = Math.floor(((90 - lat) / 180) * field.height);
-  if (x < 0) x = 0;
-  if (x >= field.width) x = field.width - 1;
-  if (y < 0) y = 0;
-  if (y >= field.height) y = field.height - 1;
-  const offset = (y * field.width + x) * 4;
-  const bandCode = field.data[offset];
-  if (bandCode === 0) return { kind: "water" };
-  return {
-    kind: "land",
-    band: bandCode - 1,
-    km: Math.max(0, field.data[offset + 1] - 1) * 20,
-    ice: field.data[offset + 2] > 0,
-  };
-}
