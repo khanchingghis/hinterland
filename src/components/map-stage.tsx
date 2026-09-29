@@ -4,6 +4,8 @@ import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { MapMouseEvent, RasterTileSource } from "maplibre-gl";
 import type { StudyRaster } from "@/lib/geo/paint";
+import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
+import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import { publicPath } from "@/lib/base-path";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -35,18 +37,22 @@ type MapStageProps = {
   ref?: Ref<MapStageHandle>;
   hideIce: boolean;
   opacity: number;
+  worldField: WorldField | null;
+  worldTileMaxZoom: number;
+  studyActive: boolean;
+  guideBottomInset: number;
   onView: (bounds: BBox) => void;
   onHover: (lngLat: { lng: number; lat: number }) => void;
   onClick: (lngLat: { lng: number; lat: number }) => void;
 };
 
-function padding(): maplibregl.PaddingOptions {
+function padding(guideBottomInset: number): maplibregl.PaddingOptions {
   const wide = typeof window !== "undefined" && window.innerWidth >= 960;
   return {
     left: wide ? 400 : 16,
     right: 16,
     top: 16,
-    bottom: wide ? 16 : 220,
+    bottom: wide ? 16 : guideBottomInset,
   };
 }
 
@@ -59,11 +65,12 @@ function asBounds(bounds: maplibregl.LngLatBounds): BBox | null {
   return { west, south, east, north };
 }
 
-function paintStudy(
+function paintOverlay(
   map: maplibregl.Map | null,
   canvas: HTMLCanvasElement | null,
   image: HTMLCanvasElement | null,
   bounds: BBox | null,
+  outlineStudy: boolean,
 ) {
   if (!canvas || !map) return;
   const box = map.getContainer();
@@ -102,6 +109,8 @@ function paintStudy(
   context.imageSmoothingEnabled = false;
   context.drawImage(image, 0, 0);
   context.restore();
+
+  if (!outlineStudy) return;
 
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.beginPath();
@@ -144,7 +153,18 @@ function escapeHtml(value: string): string {
   });
 }
 
-export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: MapStageProps) {
+export function MapStage({
+  ref,
+  hideIce,
+  opacity,
+  worldField,
+  worldTileMaxZoom,
+  studyActive,
+  guideBottomInset,
+  onView,
+  onHover,
+  onClick,
+}: MapStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -152,8 +172,15 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
   const readyRef = useRef(false);
   const studyImageRef = useRef<HTMLCanvasElement | null>(null);
   const studyBoundsRef = useRef<BBox | null>(null);
+  const worldImageRef = useRef<HTMLCanvasElement | null>(null);
+  const worldBoundsRef = useRef<BBox | null>(null);
+  const roadLayerIdsRef = useRef<string[]>([]);
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
+  const worldFieldRef = useRef(worldField);
+  const worldTileMaxZoomRef = useRef(worldTileMaxZoom);
+  const studyActiveRef = useRef(studyActive);
+  const guideBottomInsetRef = useRef(guideBottomInset);
   const onViewRef = useRef(onView);
   const onHoverRef = useRef(onHover);
   const onClickRef = useRef(onClick);
@@ -161,13 +188,70 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
   useEffect(() => {
     hideIceRef.current = hideIce;
     opacityRef.current = opacity;
+    worldFieldRef.current = worldField;
+    worldTileMaxZoomRef.current = worldTileMaxZoom;
+    studyActiveRef.current = studyActive;
+    guideBottomInsetRef.current = guideBottomInset;
     onViewRef.current = onView;
     onHoverRef.current = onHover;
     onClickRef.current = onClick;
   });
 
+  const usesWorldDetailOverlay = (map: maplibregl.Map): boolean => {
+    if (studyActiveRef.current || studyImageRef.current) return false;
+    if (!worldFieldRef.current) return false;
+    return map.getZoom() > worldTileMaxZoomRef.current;
+  };
+
+  const syncBasemapAndTiles = (map: maplibregl.Map) => {
+    if (!map.getLayer("distance")) return;
+    const worldDetail = usesWorldDetailOverlay(map);
+    const study = Boolean(studyImageRef.current);
+    map.setLayoutProperty("distance", "visibility", worldDetail || study ? "none" : "visible");
+    const hideRoads = worldDetail && !study;
+    for (const id of roadLayerIdsRef.current) {
+      if (!map.getLayer(id)) continue;
+      map.setLayoutProperty(id, "visibility", hideRoads ? "none" : "visible");
+    }
+  };
+
+  const refreshWorldOverlay = (map: maplibregl.Map) => {
+    if (!usesWorldDetailOverlay(map)) {
+      worldImageRef.current = null;
+      worldBoundsRef.current = null;
+      return;
+    }
+    const field = worldFieldRef.current;
+    const bounds = asBounds(map.getBounds());
+    if (!field || !bounds) return;
+    const painted = fieldRasterForBounds(field, bounds, hideIceRef.current, opacityRef.current);
+    if (!painted) {
+      worldImageRef.current = null;
+      worldBoundsRef.current = null;
+      return;
+    }
+    worldBoundsRef.current = painted.bounds;
+    worldImageRef.current = rasterImage(painted.raster);
+  };
+
   const redraw = () => {
-    paintStudy(mapRef.current, overlayRef.current, studyImageRef.current, studyBoundsRef.current);
+    const map = mapRef.current;
+    const canvas = overlayRef.current;
+    if (!map || !canvas) return;
+    const study = studyImageRef.current && studyBoundsRef.current;
+    if (study) {
+      paintOverlay(map, canvas, studyImageRef.current, studyBoundsRef.current, true);
+      return;
+    }
+    paintOverlay(map, canvas, worldImageRef.current, worldBoundsRef.current, false);
+  };
+
+  const refreshView = () => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) return;
+    refreshWorldOverlay(map);
+    syncBasemapAndTiles(map);
+    redraw();
   };
 
   useImperativeHandle(ref, () => ({
@@ -180,7 +264,7 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
           [bounds.west, bounds.south],
           [bounds.east, bounds.north],
         ],
-        { padding: padding(), duration: 900, essential: true },
+        { padding: padding(guideBottomInsetRef.current), duration: 900, essential: true },
       );
     },
     getBounds() {
@@ -191,13 +275,13 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
     setStudy(raster, bounds) {
       studyBoundsRef.current = bounds;
       studyImageRef.current = rasterImage(raster);
-      redraw();
+      refreshView();
     },
     clearStudy() {
       studyBoundsRef.current = null;
       studyImageRef.current = null;
       popupRef.current?.remove();
-      redraw();
+      refreshView();
     },
     showNote(note) {
       const map = mapRef.current;
@@ -231,7 +315,7 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
     });
     mapRef.current = map;
     map.touchZoomRotate.disableRotation();
-    map.setPadding(padding());
+    map.setPadding(padding(guideBottomInsetRef.current));
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric", maxWidth: 120 }), "bottom-right");
 
@@ -255,13 +339,23 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
       if (bounds) onViewRef.current(bounds);
     };
 
+    const onMapChange = () => {
+      refreshWorldOverlay(map);
+      syncBasemapAndTiles(map);
+      publishView();
+    };
+
     map.on("load", () => {
+      roadLayerIdsRef.current = (map.getStyle()?.layers ?? [])
+        .filter((layer) => isBasemapRoadLayer(layer))
+        .map((layer) => layer.id);
+
       map.addSource("distance", {
         type: "raster",
         tiles: [hideIceRef.current ? WORLD_TILES_NO_ICE : WORLD_TILES],
         tileSize: 256,
         minzoom: 0,
-        maxzoom: 5,
+        maxzoom: worldTileMaxZoomRef.current,
       });
       map.addLayer({
         id: "distance",
@@ -274,15 +368,13 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
         },
       });
       readyRef.current = true;
-      publishView();
-      paintStudy(map, overlay, studyImageRef.current, studyBoundsRef.current);
+      onMapChange();
+      redraw();
     });
 
-    const redrawOverlay = () => {
-      paintStudy(map, overlay, studyImageRef.current, studyBoundsRef.current);
-    };
-    map.on("render", redrawOverlay);
-    map.on("moveend", publishView);
+    map.on("render", redraw);
+    map.on("moveend", onMapChange);
+    map.on("zoomend", onMapChange);
     map.on("mousemove", (event: MapMouseEvent) => {
       onHoverRef.current(event.lngLat);
     });
@@ -291,8 +383,8 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
     });
 
     const onResize = () => {
-      map.setPadding(padding());
-      paintStudy(map, overlay, studyImageRef.current, studyBoundsRef.current);
+      map.setPadding(padding(guideBottomInsetRef.current));
+      refreshView();
     };
     window.addEventListener("resize", onResize);
 
@@ -312,13 +404,26 @@ export function MapStage({ ref, hideIce, opacity, onView, onHover, onClick }: Ma
     if (!map || !readyRef.current) return;
     const source = map.getSource("distance") as RasterTileSource | undefined;
     source?.setTiles([hideIce ? WORLD_TILES_NO_ICE : WORLD_TILES]);
+    refreshView();
   }, [hideIce]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !readyRef.current || !map.getLayer("distance")) return;
     map.setPaintProperty("distance", "raster-opacity", opacity);
+    refreshView();
   }, [opacity]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) return;
+    map.setPadding(padding(guideBottomInset));
+    refreshView();
+  }, [guideBottomInset]);
+
+  useEffect(() => {
+    refreshView();
+  }, [worldField, worldTileMaxZoom, studyActive]);
 
   return <div ref={containerRef} className="absolute inset-0" aria-label="World map" />;
 }
