@@ -460,6 +460,36 @@ function readFileSize(file: string): number {
   return readFileSync(file).length;
 }
 
+/** Same road features burned into the distance grid, for the map overlay. */
+function writeWorldRoadsGeojson(features: Feature[]): void {
+  const outFeatures: { type: "Feature"; properties: { type: string }; geometry: Geometry }[] = [];
+  for (const feature of features) {
+    const geometry = feature.geometry;
+    if (!geometry) continue;
+    const type = String(feature.properties.type ?? "Unknown");
+    if (EXCLUDED.has(type)) continue;
+    if (geometry.type !== "LineString" && geometry.type !== "MultiLineString") continue;
+    outFeatures.push({
+      type: "Feature",
+      properties: { type },
+      geometry,
+    });
+  }
+  const file = path.join(ROOT, "public/world-roads.geojson");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      type: "FeatureCollection",
+      properties: {
+        source: "Natural Earth 1:10 million roads",
+        excluded: [...EXCLUDED],
+      },
+      features: outFeatures,
+    }),
+  );
+  console.log(`  roads overlay ${Math.round(readFileSize(file) / 1024 / 1024)} MB`);
+}
+
 function main(): void {
   assertMeasure();
   assertDistanceTransform();
@@ -488,7 +518,9 @@ function main(): void {
   rasterizePolygons(loadFeatures("ne_10m_glaciated_areas.geojson"), ice, true);
 
   console.log("rasterizing roads");
-  const roads = rasterizeRoads(loadFeatures("ne_10m_roads.geojson"));
+  const roadFeatures = loadFeatures("ne_10m_roads.geojson");
+  writeWorldRoadsGeojson(roadFeatures);
+  const roads = rasterizeRoads(roadFeatures);
   let seedCells = 0;
   for (let i = 0; i < roads.seeds.length; i++) if (roads.seeds[i]) seedCells += 1;
   console.log(`  road cells ${seedCells.toLocaleString("en-US")}`);
