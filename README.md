@@ -65,7 +65,7 @@ They come from [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural
 npm run world
 ```
 
-That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, and `public/world-meta.json`.
+That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads.geojson` (the Natural Earth lines used for the world “Show roads used” overlay).
 
 ## GitHub Pages
 

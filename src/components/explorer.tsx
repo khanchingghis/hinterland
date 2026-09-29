@@ -38,6 +38,7 @@ import {
   type BBox,
 } from "@/lib/roads";
 import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
+import { loadWorldRoadInventory } from "@/lib/world-roads";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
 type LegendMode = "world" | "study";
@@ -56,6 +57,7 @@ type StudyState = {
 
 const FAR_IDS = ["far", "remote", "wild"];
 const GUIDE_STORAGE_KEY = "hinterland-guide-open";
+const WORLD_ROADS_STORAGE_KEY = "hinterland-show-world-roads";
 
 export function Explorer() {
   const mapRef = useRef<MapStageHandle>(null);
@@ -67,6 +69,14 @@ export function Explorer() {
   const [meta, setMeta] = useState<WorldMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [hideIce, setHideIce] = useState(false);
+  const [showWorldRoads, setShowWorldRoads] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(WORLD_ROADS_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [opacity, setOpacity] = useState(86);
   const [groups, setGroups] = useState(defaultGroupState);
   const [cellM, setCellM] = useState(70);
@@ -108,6 +118,15 @@ export function Explorer() {
     }
   }, []);
 
+  const setShowWorldRoadsPersisted = useCallback((on: boolean) => {
+    setShowWorldRoads(on);
+    try {
+      localStorage.setItem(WORLD_ROADS_STORAGE_KEY, String(on));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
   const guideBottomInset = isWide ? 16 : guideOpen ? 220 : 56;
   const worldTileMaxZoom = meta?.tileMaxZoom ?? 5;
 
@@ -127,6 +146,10 @@ export function Explorer() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadWorldRoadInventory();
   }, []);
 
   useEffect(() => {
@@ -213,7 +236,10 @@ export function Explorer() {
     const km = sample.km;
     return {
       title: band.label,
-      body: km < 20 ? "Under 20 km from a major road" : `About ${km.toLocaleString("en-US")} km from a major road`,
+      body:
+        km < 20
+          ? "Under 20 km from a Natural Earth mapped road"
+          : `About ${km.toLocaleString("en-US")} km from a Natural Earth mapped road`,
     };
   }
 
@@ -338,6 +364,7 @@ export function Explorer() {
         ref={mapRef}
         hideIce={hideIce}
         opacity={opacity / 100}
+        showWorldRoads={showWorldRoads}
         worldField={worldField}
         worldTileMaxZoom={worldTileMaxZoom}
         studyActive={study != null}
@@ -352,16 +379,27 @@ export function Explorer() {
       </div>
 
       {!guideOpen && (
-        <button
-          type="button"
-          className="absolute z-20 flex items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm font-medium text-[#241c14] shadow-md backdrop-blur-md bottom-3 left-3 md:top-3 md:bottom-auto"
-          onClick={() => setGuideOpenPersisted(true)}
-          aria-expanded={false}
-          aria-label="Open map guide and legend"
-        >
-          <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
-          Guide
-        </button>
+        <div className="absolute z-20 flex flex-col gap-2 bottom-3 left-3 md:top-3 md:bottom-auto">
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm font-medium text-[#241c14] shadow-md backdrop-blur-md"
+            onClick={() => setGuideOpenPersisted(true)}
+            aria-expanded={false}
+            aria-label="Open map guide and legend"
+          >
+            <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
+            Guide
+          </button>
+          <label className="flex cursor-pointer items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm text-[#241c14] shadow-md backdrop-blur-md">
+            <Switch
+              checked={showWorldRoads}
+              onCheckedChange={setShowWorldRoadsPersisted}
+              disabled={study != null}
+              aria-label="Show roads used for world distance"
+            />
+            <span className="font-medium">Roads used</span>
+          </label>
+        </div>
       )}
 
       {guideOpen && (
@@ -386,7 +424,8 @@ export function Explorer() {
             </Button>
           </div>
           <p className="mt-2 text-sm leading-5 text-[#5c5348]">
-            Land sorted by straight-line distance to the nearest road. Warm is close. Deep teal and ink are far.
+            Land sorted by straight-line distance to the nearest mapped road in each layer. Warm is close. Deep teal
+            and ink are far. The world layer uses Natural Earth 1:10m roads, not every OpenStreetMap street.
           </p>
         </div>
 
@@ -419,8 +458,8 @@ export function Explorer() {
               {legend === "world" && meta && (
                 <p className="mb-2 text-sm leading-5">
                   <span className="font-medium tabular-nums">{formatShare(beyondHundred)}</span> of{" "}
-                  {hideIce ? "land outside the ice sheets" : "land"} is more than 100 km from the nearest road in
-                  this layer. {formatKm2(hideIce ? iceFreeKm(meta) : meta.landKm2)} classified.
+                  {hideIce ? "land outside the ice sheets" : "land"} is more than 100 km from the nearest Natural Earth
+                  road in this layer. {formatKm2(hideIce ? iceFreeKm(meta) : meta.landKm2)} classified.
                 </p>
               )}
               {legend === "world" && metaError && <p className="mb-2 text-sm text-[#8a3d32]">{metaError}</p>}
@@ -465,6 +504,23 @@ export function Explorer() {
             <Separator />
 
             <section className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="show-world-roads" className="text-sm font-medium">
+                  Show roads used
+                </Label>
+                <Switch
+                  id="show-world-roads"
+                  checked={showWorldRoads}
+                  onCheckedChange={setShowWorldRoadsPersisted}
+                  disabled={study != null}
+                />
+              </div>
+              <p className="text-xs leading-4 text-[#6d6458]">
+                Overlays the Natural Earth lines that build the world distance field (ferries excluded). These are not
+                Positron basemap streets. At city zoom the basemap hides OSM roads so the overlay stays honest; turn
+                this on to see the coarse inventory behind the colors.
+                {study ? " Hidden while a local OpenStreetMap study is active." : ""}
+              </p>
               <div className="flex items-center justify-between gap-3">
                 <Label htmlFor="hide-ice" className="text-sm font-medium">
                   Hide ice sheets
