@@ -10,7 +10,7 @@ import type { BBox } from "@/lib/roads";
 import {
   lineWidthForZoom,
   linesInBounds,
-  loadWorldRoadInventory,
+  ensureWorldRoadInventory,
   strokeColorForRoadType,
   type WorldRoadInventory,
 } from "@/lib/world-roads";
@@ -228,8 +228,8 @@ export function MapStage({
   const worldImageRef = useRef<HTMLCanvasElement | null>(null);
   const worldBoundsRef = useRef<BBox | null>(null);
   const roadLayerIdsRef = useRef<string[]>([]);
-  const worldRoadsLayerReadyRef = useRef(false);
   const worldRoadInventoryRef = useRef<WorldRoadInventory | null>(null);
+  const worldRoadsLoadRef = useRef(0);
   const showWorldRoadsRef = useRef(showWorldRoads);
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
@@ -266,60 +266,6 @@ export function MapStage({
     return true;
   };
 
-  const ensureWorldRoadsLayer = (map: maplibregl.Map) => {
-    if (worldRoadsLayerReadyRef.current || !map.getLayer("distance")) return;
-    map.addSource("world-roads", {
-      type: "geojson",
-      data: publicPath("/world-roads.geojson"),
-      lineMetrics: true,
-    });
-    map.addLayer({
-        id: "world-roads",
-        type: "line",
-        source: "world-roads",
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": [
-            "match",
-            ["get", "type"],
-            "Major Highway",
-            "#b83828",
-            "Secondary Highway",
-            "#c86a2c",
-            "Road",
-            "#7a5a2a",
-            "Beltway",
-            "#9a4528",
-            "Bypass",
-            "#9a4528",
-            "Track",
-            "#6a5848",
-            "#4a4038",
-          ],
-          "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.5, 4, 1.2, 8, 2.4, 12, 3.5],
-          "line-opacity": 0.92,
-        },
-      });
-    worldRoadsLayerReadyRef.current = true;
-  };
-
-  const syncWorldRoadsLayer = (map: maplibregl.Map) => {
-    const show = shouldDrawWorldRoads(map);
-    if (!show) {
-      if (map.getLayer("world-roads")) {
-        map.setLayoutProperty("world-roads", "visibility", "none");
-      }
-      return;
-    }
-    ensureWorldRoadsLayer(map);
-    if (!map.getLayer("world-roads")) return;
-    const onCanvas = usesWorldDetailOverlay(map);
-    map.setLayoutProperty("world-roads", "visibility", onCanvas ? "none" : "visible");
-  };
-
   const syncBasemapAndTiles = (map: maplibregl.Map) => {
     if (!map.getLayer("distance")) return;
     const worldDetail = usesWorldDetailOverlay(map);
@@ -330,7 +276,19 @@ export function MapStage({
       if (!map.getLayer(id)) continue;
       map.setLayoutProperty(id, "visibility", hideRoads ? "none" : "visible");
     }
-    syncWorldRoadsLayer(map);
+  };
+
+  const refreshWorldRoadInventory = (map: maplibregl.Map) => {
+    if (!shouldDrawWorldRoads(map)) return;
+    const bounds = asBounds(map.getBounds());
+    if (!bounds) return;
+    const token = worldRoadsLoadRef.current + 1;
+    worldRoadsLoadRef.current = token;
+    void ensureWorldRoadInventory(bounds).then((inventory) => {
+      if (worldRoadsLoadRef.current !== token) return;
+      worldRoadInventoryRef.current = inventory;
+      redraw();
+    });
   };
 
   const refreshWorldOverlay = (map: maplibregl.Map) => {
@@ -371,7 +329,7 @@ export function MapStage({
     const roadContext = resizeOverlayCanvas(map, roadsCanvas);
     if (!roadContext) return;
     roadContext.clearRect(0, 0, map.getContainer().clientWidth, map.getContainer().clientHeight);
-    if (shouldDrawWorldRoads(map) && usesWorldDetailOverlay(map)) {
+    if (shouldDrawWorldRoads(map)) {
       const bounds = asBounds(map.getBounds());
       const inventory = worldRoadInventoryRef.current;
       if (bounds && inventory) {
@@ -483,6 +441,7 @@ export function MapStage({
     const onMapChange = () => {
       refreshWorldOverlay(map);
       syncBasemapAndTiles(map);
+      refreshWorldRoadInventory(map);
       publishView();
     };
 
@@ -569,16 +528,14 @@ export function MapStage({
   }, [worldField, worldTileMaxZoom, studyActive, showWorldRoads]);
 
   useEffect(() => {
-    if (!showWorldRoads) return;
-    let cancelled = false;
-    void loadWorldRoadInventory().then((inventory) => {
-      if (cancelled) return;
-      worldRoadInventoryRef.current = inventory;
+    const map = mapRef.current;
+    if (!map || !readyRef.current) return;
+    if (!showWorldRoads) {
+      worldRoadInventoryRef.current = null;
       refreshView();
-    });
-    return () => {
-      cancelled = true;
-    };
+      return;
+    }
+    refreshWorldRoadInventory(map);
   }, [showWorldRoads]);
 
   return <div ref={containerRef} className="absolute inset-0" aria-label="World map" />;

@@ -1,16 +1,24 @@
 /**
  * Build the planetary distance layer.
  *
- * Roads and land come from Natural Earth 1:10m (public domain). Each land
- * cell of a 0.05° grid stores straight-line distance to the nearest road,
- * computed with a Euclidean distance transform in overlapping latitude
- * bands so a degree of longitude shrinks toward the poles. Ferry routes
- * are left out. Ocean is left unpainted.
+ * Roads come from GRIP4 (types 1–4: highway through tertiary). Land and ice
+ * use Natural Earth 1:10m (public domain). Each land cell of a 0.05° grid
+ * stores straight-line distance to the nearest road, computed with a
+ * Euclidean distance transform in overlapping latitude bands so a degree of
+ * longitude shrinks toward the poles. Ocean is left unpainted.
  *
  * Run: npm run world
  */
-import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import {
+  assertGripRegionsPresent,
+  buildGripOverlayAssets,
+  exportGripRegionSeq,
+  rasterizeGripSeqFile,
+} from "./grip-export";
+import { GRIP_SOURCE, GRIP_REGIONS } from "../src/lib/grip-inventory";
 import { PNG } from "pngjs";
 import { WORLD_BANDS, bandAlpha, bandIndex } from "../src/lib/bands";
 import { assertDistanceTransform, distanceToFeatures } from "../src/lib/geo/edt";
@@ -30,7 +38,7 @@ const RAW = path.join(ROOT, "data/raw");
 const TILE_DIR = path.join(ROOT, "public/tiles");
 const TILE_DIR_NO_ICE = path.join(ROOT, "public/tiles-no-ice");
 
-const EXCLUDED = new Set(["Ferry Route", "Ferry, seasonal"]);
+const EXCLUDED = ["GRIP local/urban (type 5)", "Ferry routes (not in GRIP)"];
 
 const SAMPLES: Omit<SampleReading, "land" | "ice" | "km" | "bandId">[] = [
   { id: "london", name: "London", region: "Western Europe", lon: -0.1276, lat: 51.5072, zoom: 5 },
@@ -136,58 +144,6 @@ function rasterizePolygons(features: Feature[], mask: Uint8Array, exteriorOnly: 
       for (let c = c0; c <= c1; c++) mask[row + c] = 1;
     }
   }
-}
-
-function rasterizeRoads(features: Feature[]): {
-  seeds: Uint8Array;
-  countsByType: Record<string, number>;
-  kmByType: Record<string, number>;
-} {
-  const seeds = new Uint8Array(COLS * ROWS);
-  const countsByType: Record<string, number> = {};
-  const kmByType: Record<string, number> = {};
-
-  const draw = (a: [number, number], b: [number, number]) => {
-    const x0 = lonToX(a[0]);
-    const y0 = latToY(a[1]);
-    const x1 = lonToX(b[0]);
-    const y1 = latToY(b[1]);
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
-    for (let i = 0; i <= steps; i++) {
-      const t = steps === 0 ? 0 : i / steps;
-      const c = Math.round(x0 + dx * t);
-      const r = Math.round(y0 + dy * t);
-      if (c >= 0 && c < COLS && r >= 0 && r < ROWS) seeds[r * COLS + c] = 1;
-    }
-  };
-
-  for (const feature of features) {
-    const geometry = feature.geometry;
-    if (!geometry) continue;
-    const type = String(feature.properties.type ?? "Unknown");
-    if (EXCLUDED.has(type)) continue;
-    countsByType[type] = (countsByType[type] ?? 0) + 1;
-    const length = Number(feature.properties.length_km ?? 0);
-    if (Number.isFinite(length)) kmByType[type] = (kmByType[type] ?? 0) + length;
-
-    const lines =
-      geometry.type === "LineString"
-        ? [geometry.coordinates as number[][]]
-        : geometry.type === "MultiLineString"
-          ? (geometry.coordinates as number[][][])
-          : [];
-    for (const line of lines) {
-      for (let i = 0; i < line.length - 1; i++) {
-        const a: [number, number] = [line[i][0], line[i][1]];
-        const b: [number, number] = [line[i + 1][0], line[i + 1][1]];
-        for (const [start, end] of splitDateLine(a, b)) draw(start, end);
-      }
-    }
-  }
-
-  return { seeds, countsByType, kmByType };
 }
 
 function computeDistances(seeds: Uint8Array): Float32Array {
@@ -460,47 +416,18 @@ function readFileSize(file: string): number {
   return readFileSync(file).length;
 }
 
-/** Same road features burned into the distance grid, for the map overlay. */
-function writeWorldRoadsGeojson(features: Feature[]): void {
-  const outFeatures: { type: "Feature"; properties: { type: string }; geometry: Geometry }[] = [];
-  for (const feature of features) {
-    const geometry = feature.geometry;
-    if (!geometry) continue;
-    const type = String(feature.properties.type ?? "Unknown");
-    if (EXCLUDED.has(type)) continue;
-    if (geometry.type !== "LineString" && geometry.type !== "MultiLineString") continue;
-    outFeatures.push({
-      type: "Feature",
-      properties: { type },
-      geometry,
-    });
-  }
-  const file = path.join(ROOT, "public/world-roads.geojson");
-  writeFileSync(
-    file,
-    JSON.stringify({
-      type: "FeatureCollection",
-      properties: {
-        source: "Natural Earth 1:10 million roads",
-        excluded: [...EXCLUDED],
-      },
-      features: outFeatures,
-    }),
-  );
-  console.log(`  roads overlay ${Math.round(readFileSize(file) / 1024 / 1024)} MB`);
-}
-
-function main(): void {
+async function main(): Promise<void> {
   assertMeasure();
   assertDistanceTransform();
   assertLocal();
   console.log("distance checks passed");
 
-  for (const file of ["ne_10m_land.geojson", "ne_10m_glaciated_areas.geojson", "ne_10m_roads.geojson"]) {
+  for (const file of ["ne_10m_land.geojson", "ne_10m_glaciated_areas.geojson"]) {
     if (!existsSync(path.join(RAW, file))) {
       throw new Error(`Missing ${file} in data/raw. See the README.`);
     }
   }
+  assertGripRegionsPresent();
 
   console.log("rasterizing land");
   const land = new Uint8Array(COLS * ROWS);
@@ -517,17 +444,53 @@ function main(): void {
   const ice = new Uint8Array(COLS * ROWS);
   rasterizePolygons(loadFeatures("ne_10m_glaciated_areas.geojson"), ice, true);
 
-  console.log("rasterizing roads");
-  const roadFeatures = loadFeatures("ne_10m_roads.geojson");
-  writeWorldRoadsGeojson(roadFeatures);
-  const roads = rasterizeRoads(roadFeatures);
+  console.log("rasterizing GRIP roads (types 1–4)");
+  const seeds = new Uint8Array(COLS * ROWS);
+  const countsByType: Record<string, number> = {};
+  const kmByType: Record<string, number> = {};
+
+  const draw = (a: [number, number], b: [number, number]) => {
+    const x0 = lonToX(a[0]);
+    const y0 = latToY(a[1]);
+    const x1 = lonToX(b[0]);
+    const y1 = latToY(b[1]);
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
+    for (let i = 0; i <= steps; i++) {
+      const t = steps === 0 ? 0 : i / steps;
+      const c = Math.round(x0 + dx * t);
+      const r = Math.round(y0 + dy * t);
+      if (c >= 0 && c < COLS && r >= 0 && r < ROWS) seeds[r * COLS + c] = 1;
+    }
+  };
+
+  const RASTER_SIMPLIFY = 0.012;
+  for (const region of GRIP_REGIONS) {
+    const temp = path.join(os.tmpdir(), `hinterland-grip-${region.id}.ndjson`);
+    console.log(`  region ${region.id}`);
+    exportGripRegionSeq(region.id, temp, RASTER_SIMPLIFY);
+    await rasterizeGripSeqFile(temp, (a, b) => {
+      for (const [start, end] of splitDateLine(a, b)) draw(start, end);
+    }, (type, lengthKm) => {
+      countsByType[type] = (countsByType[type] ?? 0) + 1;
+      kmByType[type] = (kmByType[type] ?? 0) + lengthKm;
+    });
+    unlinkSync(temp);
+  }
+
+  console.log("writing road overlay assets");
+  buildGripOverlayAssets();
+  const legacyRoads = path.join(ROOT, "public/world-roads.geojson");
+  if (existsSync(legacyRoads)) unlinkSync(legacyRoads);
+
   let seedCells = 0;
-  for (let i = 0; i < roads.seeds.length; i++) if (roads.seeds[i]) seedCells += 1;
+  for (let i = 0; i < seeds.length; i++) if (seeds[i]) seedCells += 1;
   console.log(`  road cells ${seedCells.toLocaleString("en-US")}`);
-  if (seedCells < 1000) throw new Error("Too few road cells were painted.");
+  if (seedCells < 50_000) throw new Error("Too few road cells were painted.");
 
   console.log("distance transform");
-  const dist = computeDistances(roads.seeds);
+  const dist = computeDistances(seeds);
 
   const withIce = areas(land, ice, dist, false);
   const noIce = areas(land, ice, dist, true);
@@ -561,8 +524,14 @@ function main(): void {
     throw new Error(`London is ${london.km} km from a road. The road raster or distance field is off.`);
   }
   const sahara = samples.find((sample) => sample.id === "tanezrouft");
-  if (sahara?.km != null && sahara.km < 25) {
+  if (sahara?.km != null && sahara.km < 5) {
     throw new Error("The Tanezrouft looks too close to a road. The distance field may be wrong.");
+  }
+  const amazon = samples.find((sample) => sample.id === "amazon");
+  if (amazon?.km != null && amazon.km > 200) {
+    throw new Error(
+      `The western Amazon is still ${amazon.km} km from a road. GRIP should be denser than Natural Earth here.`,
+    );
   }
 
   const meta: WorldMeta = {
@@ -572,11 +541,11 @@ function main(): void {
     kmStep: KM_STEP,
     tileMaxZoom: MAX_Z,
     roads: {
-      source: "Natural Earth 1:10 million roads",
-      excluded: [...EXCLUDED],
-      countsByType: roads.countsByType,
+      source: GRIP_SOURCE,
+      excluded: EXCLUDED,
+      countsByType,
       kmByType: Object.fromEntries(
-        Object.entries(roads.kmByType).map(([key, value]) => [key, Math.round(value)]),
+        Object.entries(kmByType).map(([key, value]) => [key, Math.round(value)]),
       ),
     },
     landKm2: Math.round(withIce.landKm2),
@@ -598,4 +567,4 @@ function main(): void {
   console.log("done");
 }
 
-main();
+void main();

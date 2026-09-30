@@ -4,7 +4,7 @@ type BasemapLayer = {
   "source-layer"?: string;
 };
 
-/** OpenFreeMap Positron draws OSM streets; the world layer uses Natural Earth roads. */
+/** OpenFreeMap Positron draws OSM streets; the world layer uses GRIP4 roads (types 1–4). */
 export function isBasemapRoadLayer(layer: BasemapLayer): boolean {
   if (layer.type !== "line") return false;
   const sourceLayer = layer["source-layer"];
