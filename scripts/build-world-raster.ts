@@ -34,7 +34,7 @@ const RES = 0.05;
 const COLS = Math.round(360 / RES);
 const ROWS = Math.round(180 / RES);
 const TILE = 256;
-const MAX_Z = 5;
+const MAX_Z = 6;
 const KM_STEP = 1;
 
 const ROOT = path.resolve(__dirname, "..");
@@ -393,8 +393,8 @@ function writeTiles(
 }
 
 function writeField(land: Uint8Array, ice: Uint8Array, dist: Float32Array): void {
-  // Half the analysis grid. Hover readings are already quantized to 20 km.
-  const stride = 2;
+  // Full 0.05° analysis grid for city zoom (world-field canvas overlay above tileMaxZoom).
+  const stride = 1;
   const width = COLS / stride;
   const height = ROWS / stride;
   const png = new PNG({ width, height });

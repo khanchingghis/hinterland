@@ -31,7 +31,7 @@ Distance means straight-line distance to the nearest road centerline, in meters.
 
 The world grid is computed in overlapping latitude bands. Inside a band, cell width uses the meters in a degree of longitude at that latitude, so the poles are not stretched. The antimeridian is padded so roads in Alaska and Chukotka can be each other’s nearest road. Ferry routes are not in GRIP and are not burned.
 
-Zoomed-out pixels use the median class of the cells they cover, so a thin road corridor does not disappear. From zoom level 4 upward, a pixel is the cell under its center.
+Zoomed-out pixels use the median class of the cells they cover, so a thin road corridor does not disappear. From zoom level 4 upward, a pixel is the cell under its center. The raster pyramid runs through zoom level 6; beyond that, the map paints `world-field.png` (one pixel per 0.05° cell) on a canvas overlay instead of upscaling tiles.
 
 A local study uses the same transform on a projected meter grid for that frame. Within a few hundred kilometers the earth is flat enough for this.
 

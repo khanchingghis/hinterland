@@ -129,7 +129,7 @@ export function Explorer() {
   }, []);
 
   const guideBottomInset = isWide ? 16 : guideOpen ? 220 : 56;
-  const worldTileMaxZoom = meta?.tileMaxZoom ?? 5;
+  const worldTileMaxZoom = meta?.tileMaxZoom ?? 6;
 
   useEffect(() => {
     let cancelled = false;
