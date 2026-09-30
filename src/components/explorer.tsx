@@ -69,6 +69,7 @@ export function Explorer() {
   const [meta, setMeta] = useState<WorldMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [hideIce, setHideIce] = useState(false);
+  const [worldRoadsLoading, setWorldRoadsLoading] = useState(false);
   const [showWorldRoads, setShowWorldRoads] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -372,6 +373,7 @@ export function Explorer() {
         onView={setView}
         onHover={handleHover}
         onClick={handleClick}
+        onWorldRoadsLoadingChange={setWorldRoadsLoading}
       />
 
       <div className="pointer-events-none absolute top-4 left-1/2 z-10 max-w-[min(92vw,420px)] -translate-x-1/2 rounded-full border border-black/10 bg-[#f6f1e7]/92 px-3 py-1.5 text-center text-xs shadow-sm backdrop-blur-md md:left-[calc(50%+186px)]">
@@ -488,7 +490,7 @@ export function Explorer() {
                           className="size-3 shrink-0 rounded-sm border border-black/10"
                           style={{ backgroundColor: `rgb(${band.color.join(",")})` }}
                         />
-                        <span className="w-[5.5rem] shrink-0">{band.label}</span>
+                        <span className="w-[6.75rem] shrink-0">{band.label}</span>
                         <span className="min-w-0 flex-1 truncate text-[#6d6458]">{band.detail}</span>
                         <span className="tabular-nums text-[#3d362e]">{formatShare(share)}</span>
                       </button>
@@ -515,6 +517,9 @@ export function Explorer() {
                   disabled={study != null}
                 />
               </div>
+              {showWorldRoads && worldRoadsLoading && (
+                <p className="text-xs leading-4 text-[#6d6458]">Loading road lines… the global overview can take a minute.</p>
+              )}
               <p className="text-xs leading-4 text-[#6d6458]">
                 Overlays the GRIP lines burned into the world distance field (types 1–4; local GRIP roads omitted for
                 size). These are not Positron basemap streets. At city zoom the basemap hides OSM roads so the overlay

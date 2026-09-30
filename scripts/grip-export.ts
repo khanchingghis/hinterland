@@ -152,6 +152,48 @@ export async function buildGripOverviewAssets(): Promise<void> {
   writeWorldRoadsManifest();
 }
 
+export async function rasterizeGripGzFile(
+  gzPath: string,
+  draw: (a: [number, number], b: [number, number]) => void,
+  onFeature: (type: string, lengthKm: number) => void,
+): Promise<void> {
+  const lines = createInterface({
+    input: createReadStream(gzPath).pipe(createGunzip()),
+    crlfDelay: Infinity,
+  });
+  for await (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const feature = JSON.parse(trimmed) as GripFeature;
+    const geometry = feature.geometry;
+    if (!geometry) continue;
+    const type = String(feature.properties.type ?? "Unknown");
+    const rtp = Number(feature.properties.GP_RTP ?? 99);
+    if (rtp > GRIP_MAX_ROAD_TYPE) continue;
+    const lineStrings =
+      geometry.type === "LineString"
+        ? [geometry.coordinates as number[][]]
+        : geometry.type === "MultiLineString"
+          ? (geometry.coordinates as number[][][])
+          : [];
+    let lengthKm = 0;
+    for (const coords of lineStrings) {
+      for (let i = 0; i < coords.length - 1; i++) {
+        const a: [number, number] = [coords[i][0], coords[i][1]];
+        const b: [number, number] = [coords[i + 1][0], coords[i + 1][1]];
+        const dLat = (b[1] - a[1]) * (Math.PI / 180);
+        const dLon = (b[0] - a[0]) * (Math.PI / 180);
+        const mid = (a[1] + b[1]) / 2;
+        const mPerDegLat = 111_320;
+        const mPerDegLon = 111_320 * Math.cos((mid * Math.PI) / 180);
+        lengthKm += Math.hypot(dLon * mPerDegLon, dLat * mPerDegLat) / 1000;
+        draw(a, b);
+      }
+    }
+    if (lengthKm > 0) onFeature(type, lengthKm);
+  }
+}
+
 export async function rasterizeGripSeqFile(
   seqPath: string,
   draw: (a: [number, number], b: [number, number]) => void,

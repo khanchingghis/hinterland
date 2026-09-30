@@ -54,6 +54,7 @@ type MapStageProps = {
   onView: (bounds: BBox) => void;
   onHover: (lngLat: { lng: number; lat: number }) => void;
   onClick: (lngLat: { lng: number; lat: number }) => void;
+  onWorldRoadsLoadingChange?: (loading: boolean) => void;
 };
 
 function padding(guideBottomInset: number): maplibregl.PaddingOptions {
@@ -187,6 +188,7 @@ export function MapStage({
   onView,
   onHover,
   onClick,
+  onWorldRoadsLoadingChange,
 }: MapStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -201,6 +203,8 @@ export function MapStage({
   const worldRoadsLoadRef = useRef(0);
   const worldRoadsAbortRef = useRef<AbortController | null>(null);
   const worldRoadsModeRef = useRef<string>("");
+  /** Prevents abort/restart loops while a tier is still streaming (mode ref updates only after setData). */
+  const worldRoadsInFlightModeRef = useRef<string | null>(null);
   const showWorldRoadsRef = useRef(showWorldRoads);
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
@@ -211,6 +215,7 @@ export function MapStage({
   const onViewRef = useRef(onView);
   const onHoverRef = useRef(onHover);
   const onClickRef = useRef(onClick);
+  const onWorldRoadsLoadingChangeRef = useRef(onWorldRoadsLoadingChange);
 
   useEffect(() => {
     hideIceRef.current = hideIce;
@@ -223,6 +228,7 @@ export function MapStage({
     onViewRef.current = onView;
     onHoverRef.current = onHover;
     onClickRef.current = onClick;
+    onWorldRoadsLoadingChangeRef.current = onWorldRoadsLoadingChange;
   });
 
   const usesWorldDetailOverlay = (map: maplibregl.Map): boolean => {
@@ -253,6 +259,8 @@ export function MapStage({
     worldRoadsAbortRef.current?.abort();
     worldRoadsAbortRef.current = null;
     worldRoadsModeRef.current = "";
+    worldRoadsInFlightModeRef.current = null;
+    onWorldRoadsLoadingChangeRef.current?.(false);
     const source = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
     source?.setData({ type: "FeatureCollection", features: [] });
     for (const id of [WORLD_ROADS_CASING_LAYER, WORLD_ROADS_LINE_LAYER]) {
@@ -313,20 +321,27 @@ export function MapStage({
     if (!bounds) return;
     const modeKey = roadLoadModeKey(map, bounds);
     if (modeKey === worldRoadsModeRef.current) return;
+    if (modeKey === worldRoadsInFlightModeRef.current) return;
     const token = worldRoadsLoadRef.current + 1;
     worldRoadsLoadRef.current = token;
     worldRoadsAbortRef.current?.abort();
     const abort = new AbortController();
     worldRoadsAbortRef.current = abort;
+    worldRoadsInFlightModeRef.current = modeKey;
+    onWorldRoadsLoadingChangeRef.current?.(true);
     ensureWorldRoadLayers(map);
     void loadWorldRoadGeoJson(bounds, map.getZoom(), abort.signal)
       .then((collection) => {
+        worldRoadsInFlightModeRef.current = null;
+        onWorldRoadsLoadingChangeRef.current?.(false);
         if (worldRoadsLoadRef.current !== token || !shouldDrawWorldRoads(map)) return;
         worldRoadsModeRef.current = modeKey;
         const source = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
         source?.setData(collection);
       })
       .catch((error: unknown) => {
+        worldRoadsInFlightModeRef.current = null;
+        onWorldRoadsLoadingChangeRef.current?.(false);
         if (error instanceof DOMException && error.name === "AbortError") return;
         console.error(error);
       });
