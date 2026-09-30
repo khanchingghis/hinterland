@@ -10,6 +10,7 @@
  * Run: npm run world
  */
 import { readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
+import { WORLD_ROADS_DIR } from "./grip-export";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -17,6 +18,7 @@ import {
   buildGripOverlayAssets,
   buildGripOverviewAssets,
   exportGripRegionSeq,
+  rasterizeGripGzFile,
   rasterizeGripSeqFile,
 } from "./grip-export";
 import { GRIP_SOURCE, GRIP_REGIONS } from "../src/lib/grip-inventory";
@@ -32,7 +34,7 @@ const COLS = Math.round(360 / RES);
 const ROWS = Math.round(180 / RES);
 const TILE = 256;
 const MAX_Z = 5;
-const KM_STEP = 20;
+const KM_STEP = 5;
 
 const ROOT = path.resolve(__dirname, "..");
 const RAW = path.join(ROOT, "data/raw");
@@ -417,18 +419,53 @@ function readFileSize(file: string): number {
   return readFileSync(file).length;
 }
 
+async function ensureNaturalEarthRaw(): Promise<void> {
+  mkdirSync(RAW, { recursive: true });
+  const sources: Record<string, string> = {
+    "ne_10m_land.geojson":
+      "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson",
+    "ne_10m_glaciated_areas.geojson":
+      "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_glaciated_areas.geojson",
+  };
+  for (const [file, url] of Object.entries(sources)) {
+    const dest = path.join(RAW, file);
+    if (existsSync(dest)) continue;
+    console.log(`  downloading ${file}`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Could not download ${url} (${response.status}).`);
+    writeFileSync(dest, Buffer.from(await response.arrayBuffer()));
+  }
+}
+
+function gripGdbAvailable(): boolean {
+  try {
+    assertGripRegionsPresent();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main(): Promise<void> {
   assertMeasure();
   assertDistanceTransform();
   assertLocal();
   console.log("distance checks passed");
 
-  for (const file of ["ne_10m_land.geojson", "ne_10m_glaciated_areas.geojson"]) {
-    if (!existsSync(path.join(RAW, file))) {
-      throw new Error(`Missing ${file} in data/raw. See the README.`);
+  await ensureNaturalEarthRaw();
+
+  const fromPublicGrip = !gripGdbAvailable();
+  if (fromPublicGrip) {
+    for (const region of GRIP_REGIONS) {
+      const gz = path.join(WORLD_ROADS_DIR, region.file);
+      if (!existsSync(gz)) {
+        throw new Error(
+          `Missing ${gz}. Install GRIP4 GDBs under data/raw/grip or keep committed overlay gzip files.`,
+        );
+      }
     }
+    console.log("GRIP GDB not found; rasterizing roads from public/world-roads gzip");
   }
-  assertGripRegionsPresent();
 
   console.log("rasterizing land");
   const land = new Uint8Array(COLS * ROWS);
@@ -466,26 +503,37 @@ async function main(): Promise<void> {
     }
   };
 
-  const RASTER_SIMPLIFY = 0.012;
-  for (const region of GRIP_REGIONS) {
-    const temp = path.join(os.tmpdir(), `hinterland-grip-${region.id}.ndjson`);
-    console.log(`  region ${region.id}`);
-    exportGripRegionSeq(region.id, temp, RASTER_SIMPLIFY);
-    await rasterizeGripSeqFile(temp, (a, b) => {
-      for (const [start, end] of splitDateLine(a, b)) draw(start, end);
-    }, (type, lengthKm) => {
-      countsByType[type] = (countsByType[type] ?? 0) + 1;
-      kmByType[type] = (kmByType[type] ?? 0) + lengthKm;
-    });
-    unlinkSync(temp);
-  }
+  const onRoadFeature = (type: string, lengthKm: number) => {
+    countsByType[type] = (countsByType[type] ?? 0) + 1;
+    kmByType[type] = (kmByType[type] ?? 0) + lengthKm;
+  };
+  const drawSegment = (a: [number, number], b: [number, number]) => {
+    for (const [start, end] of splitDateLine(a, b)) draw(start, end);
+  };
 
-  console.log("writing road overlay assets");
-  buildGripOverlayAssets();
-  console.log("writing road overview assets (map overlay)");
-  await buildGripOverviewAssets();
-  const legacyRoads = path.join(ROOT, "public/world-roads.geojson");
-  if (existsSync(legacyRoads)) unlinkSync(legacyRoads);
+  if (fromPublicGrip) {
+    for (const region of GRIP_REGIONS) {
+      const gz = path.join(WORLD_ROADS_DIR, region.file);
+      console.log(`  region ${region.id} (gzip)`);
+      await rasterizeGripGzFile(gz, drawSegment, onRoadFeature);
+    }
+  } else {
+    const RASTER_SIMPLIFY = 0.012;
+    for (const region of GRIP_REGIONS) {
+      const temp = path.join(os.tmpdir(), `hinterland-grip-${region.id}.ndjson`);
+      console.log(`  region ${region.id}`);
+      exportGripRegionSeq(region.id, temp, RASTER_SIMPLIFY);
+      await rasterizeGripSeqFile(temp, drawSegment, onRoadFeature);
+      unlinkSync(temp);
+    }
+
+    console.log("writing road overlay assets");
+    buildGripOverlayAssets();
+    console.log("writing road overview assets (map overlay)");
+    await buildGripOverviewAssets();
+    const legacyRoads = path.join(ROOT, "public/world-roads.geojson");
+    if (existsSync(legacyRoads)) unlinkSync(legacyRoads);
+  }
 
   let seedCells = 0;
   for (let i = 0; i < seeds.length; i++) if (seeds[i]) seedCells += 1;
