@@ -2,7 +2,7 @@ import { WORLD_BANDS, bandAlpha } from "@/lib/bands";
 import type { StudyRaster } from "@/lib/geo/paint";
 import type { BBox } from "@/lib/roads";
 
-/** Decoded `world-field.png`: one pixel per 0.1° cell (half the analysis grid). */
+/** Decoded `world-field.png`: one pixel per 0.05° analysis cell. */
 export type WorldField = {
   width: number;
   height: number;
@@ -37,7 +37,7 @@ export function fieldGeoBounds(
 
 /**
  * Paint the visible portion of the world field for a map frame. One raster pixel
- * per field cell so city zoom shows the true ~10 km grid instead of upscaled z5 tiles.
+ * per field cell so city zoom shows the true ~5 km grid instead of upscaled z5 tiles.
  */
 export function fieldRasterForBounds(
   field: WorldField,
