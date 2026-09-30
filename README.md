@@ -77,7 +77,7 @@ Download the seven regional **FileGDB** archives from [Zenodo](https://zenodo.or
 npm run world
 ```
 
-That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads/` (gzip GeoJSON sequences plus `manifest.json` for the **Show roads used** overlay). The build streams each region for rasterization (about 0.012° simplify) and writes a slightly coarser overlay (0.05° simplify).
+That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads/` (seven regional gzip GeoJSON sequences, two global overview files for low zoom, plus `manifest.json` for the **Show roads used** overlay). The build streams each region for rasterization (about 0.012° simplify) and writes a slightly coarser overlay (0.05° simplify).
 
 ## GitHub Pages
 
