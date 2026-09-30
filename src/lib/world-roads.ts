@@ -13,7 +13,22 @@ export type WorldRoadLine = {
 export type WorldRoadInventory = {
   source: string;
   excluded: string[];
+  roadTypes?: string;
   lines: WorldRoadLine[];
+};
+
+type WorldRoadsManifest = {
+  source: string;
+  roadTypes?: string;
+  excluded: string[];
+  regions: {
+    id: string;
+    file: string;
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+  }[];
 };
 
 type GeoJsonFeature = {
@@ -24,7 +39,8 @@ type GeoJsonFeature = {
   };
 };
 
-let cached: Promise<WorldRoadInventory> | null = null;
+let manifestPromise: Promise<WorldRoadsManifest> | null = null;
+const loadedRegionFiles = new Map<string, WorldRoadLine[]>();
 
 function pushLine(
   lines: WorldRoadLine[],
@@ -45,40 +61,123 @@ function pushLine(
   lines.push({ type, coords, west, south, east, north });
 }
 
-function parseInventory(body: {
-  properties?: { source?: string; excluded?: string[] };
-  features: GeoJsonFeature[];
-}): WorldRoadInventory {
-  const lines: WorldRoadLine[] = [];
-  for (const feature of body.features) {
-    const type = String(feature.properties?.type ?? "Unknown");
-    const geometry = feature.geometry;
-    if (!geometry) continue;
-    if (geometry.type === "LineString") {
-      pushLine(lines, type, geometry.coordinates as [number, number][]);
-    } else if (geometry.type === "MultiLineString") {
-      for (const part of geometry.coordinates as [number, number][][]) {
-        pushLine(lines, type, part);
-      }
+function parseFeatureLines(feature: GeoJsonFeature): WorldRoadLine[] {
+  const type = String(feature.properties?.type ?? "Unknown");
+  const geometry = feature.geometry;
+  if (!geometry) return [];
+  const out: WorldRoadLine[] = [];
+  if (geometry.type === "LineString") {
+    pushLine(out, type, geometry.coordinates as [number, number][]);
+  } else if (geometry.type === "MultiLineString") {
+    for (const part of geometry.coordinates as [number, number][][]) {
+      pushLine(out, type, part);
     }
   }
+  return out;
+}
+
+function regionIntersectsBounds(
+  region: WorldRoadsManifest["regions"][number],
+  bounds: BBox,
+  pad: number,
+): boolean {
+  const west = bounds.west - pad;
+  const east = bounds.east + pad;
+  const south = bounds.south - pad;
+  const north = bounds.north + pad;
+  return region.east >= west && region.west <= east && region.north >= south && region.south <= north;
+}
+
+async function loadManifest(): Promise<WorldRoadsManifest> {
+  if (!manifestPromise) {
+    manifestPromise = fetch(publicPath("/world-roads/manifest.json"))
+      .then((response) => {
+        if (!response.ok) throw new Error("The world road manifest did not load.");
+        return response.json() as Promise<WorldRoadsManifest>;
+      })
+      .catch(async () => {
+        const legacy = await fetch(publicPath("/world-roads.geojson"));
+        if (!legacy.ok) throw new Error("The world road inventory did not load.");
+        const body = (await legacy.json()) as {
+          properties?: { source?: string; excluded?: string[] };
+          features: GeoJsonFeature[];
+        };
+        const lines: WorldRoadLine[] = [];
+        for (const feature of body.features) {
+          lines.push(...parseFeatureLines(feature));
+        }
+        return {
+          source: body.properties?.source ?? "Natural Earth 1:10 million roads",
+          excluded: body.properties?.excluded ?? [],
+          regions: [],
+          roadTypes: undefined,
+          _legacyLines: lines,
+        } as WorldRoadsManifest & { _legacyLines?: WorldRoadLine[] };
+      });
+  }
+  return manifestPromise;
+}
+
+async function loadRegionFile(file: string): Promise<WorldRoadLine[]> {
+  if (loadedRegionFiles.has(file)) return loadedRegionFiles.get(file)!;
+  const response = await fetch(publicPath(`/world-roads/${file}`));
+  if (!response.ok) throw new Error(`Road overlay ${file} did not load.`);
+  const compressed = await response.arrayBuffer();
+  const text = await new Response(
+    new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip")),
+  ).text();
+  const lines: WorldRoadLine[] = [];
+  for (const row of text.split("\n")) {
+    const trimmed = row.trim();
+    if (!trimmed) continue;
+    const feature = JSON.parse(trimmed) as GeoJsonFeature;
+    lines.push(...parseFeatureLines(feature));
+  }
+  loadedRegionFiles.set(file, lines);
+  return lines;
+}
+
+export async function ensureWorldRoadInventory(bounds?: BBox | null): Promise<WorldRoadInventory> {
+  const manifest = await loadManifest();
+  const legacy = manifest as WorldRoadsManifest & { _legacyLines?: WorldRoadLine[] };
+  if (legacy._legacyLines) {
+    return {
+      source: manifest.source,
+      excluded: manifest.excluded,
+      roadTypes: manifest.roadTypes,
+      lines: legacy._legacyLines,
+    };
+  }
+  const pad = 0.5;
+  const box =
+    bounds ??
+    ({
+      west: -180,
+      south: -85,
+      east: 180,
+      north: 85,
+    } satisfies BBox);
+  const needed = manifest.regions.filter((region) => regionIntersectsBounds(region, box, pad));
+  for (const region of needed) {
+    if (!loadedRegionFiles.has(region.file)) {
+      await loadRegionFile(region.file);
+    }
+  }
+  const lines: WorldRoadLine[] = [];
+  for (const region of needed) {
+    lines.push(...(loadedRegionFiles.get(region.file) ?? []));
+  }
   return {
-    source: body.properties?.source ?? "Natural Earth 1:10 million roads",
-    excluded: body.properties?.excluded ?? [],
+    source: manifest.source,
+    excluded: manifest.excluded,
+    roadTypes: manifest.roadTypes,
     lines,
   };
 }
 
+/** Preload manifest (and legacy inventory when present). */
 export function loadWorldRoadInventory(): Promise<WorldRoadInventory> {
-  if (!cached) {
-    cached = fetch(publicPath("/world-roads.geojson"))
-      .then((response) => {
-        if (!response.ok) throw new Error("The world road inventory did not load.");
-        return response.json();
-      })
-      .then(parseInventory);
-  }
-  return cached;
+  return ensureWorldRoadInventory(null);
 }
 
 export function linesInBounds(inventory: WorldRoadInventory, bounds: BBox): WorldRoadLine[] {
@@ -94,10 +193,15 @@ export function linesInBounds(inventory: WorldRoadInventory, bounds: BBox): Worl
 
 export function strokeColorForRoadType(type: string): string {
   switch (type) {
+    case "Highway":
     case "Major Highway":
       return "#b83828";
+    case "Primary":
     case "Secondary Highway":
       return "#c86a2c";
+    case "Secondary":
+      return "#d08030";
+    case "Tertiary":
     case "Road":
       return "#7a5a2a";
     case "Beltway":

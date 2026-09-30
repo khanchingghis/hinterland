@@ -238,8 +238,8 @@ export function Explorer() {
       title: band.label,
       body:
         km < 20
-          ? "Under 20 km from a Natural Earth mapped road"
-          : `About ${km.toLocaleString("en-US")} km from a Natural Earth mapped road`,
+          ? "Under 20 km from a mapped road in this layer"
+          : `About ${km.toLocaleString("en-US")} km from a mapped road in this layer`,
     };
   }
 
@@ -425,7 +425,7 @@ export function Explorer() {
           </div>
           <p className="mt-2 text-sm leading-5 text-[#5c5348]">
             Land sorted by straight-line distance to the nearest mapped road in each layer. Warm is close. Deep teal
-            and ink are far. The world layer uses Natural Earth 1:10m roads, not every OpenStreetMap street.
+            and ink are far. The world layer uses GRIP4 (highway through tertiary), not every OpenStreetMap street.
           </p>
         </div>
 
@@ -458,8 +458,8 @@ export function Explorer() {
               {legend === "world" && meta && (
                 <p className="mb-2 text-sm leading-5">
                   <span className="font-medium tabular-nums">{formatShare(beyondHundred)}</span> of{" "}
-                  {hideIce ? "land outside the ice sheets" : "land"} is more than 100 km from the nearest Natural Earth
-                  road in this layer. {formatKm2(hideIce ? iceFreeKm(meta) : meta.landKm2)} classified.
+                  {hideIce ? "land outside the ice sheets" : "land"} is more than 100 km from the nearest GRIP road
+                  in this layer. {formatKm2(hideIce ? iceFreeKm(meta) : meta.landKm2)} classified.
                 </p>
               )}
               {legend === "world" && metaError && <p className="mb-2 text-sm text-[#8a3d32]">{metaError}</p>}
@@ -516,9 +516,9 @@ export function Explorer() {
                 />
               </div>
               <p className="text-xs leading-4 text-[#6d6458]">
-                Overlays the Natural Earth lines that build the world distance field (ferries excluded). These are not
-                Positron basemap streets. At city zoom the basemap hides OSM roads so the overlay stays honest; turn
-                this on to see the coarse inventory behind the colors.
+                Overlays the GRIP lines burned into the world distance field (types 1–4; local GRIP roads omitted for
+                size). These are not Positron basemap streets. At city zoom the basemap hides OSM roads so the overlay
+                stays honest; turn this on to see the inventory behind the colors.
                 {study ? " Hidden while a local OpenStreetMap study is active." : ""}
               </p>
               <div className="flex items-center justify-between gap-3">
@@ -691,8 +691,8 @@ export function Explorer() {
               <ol className="flex list-decimal flex-col gap-2 pl-4 text-xs leading-4 text-[#3f382f]">
                 <li>
                   <span className="font-medium">What counts as a road.</span> The checkboxes above are the local
-                  answer. The world layer uses Natural Earth and skips ferries. Secondary highways in that source
-                  are concentrated in North America and Europe, so remote colors elsewhere are partly missing data.
+                  answer. The world layer uses GRIP4 types 1–4 (highway through tertiary). Local GRIP roads and ferries
+                  are not in this static layer; use Classify this view for street-level OpenStreetMap.
                 </li>
                 <li>
                   <span className="font-medium">Straight line or a journey.</span> Every number here is Euclidean
@@ -729,7 +729,7 @@ export function Explorer() {
               <div className="mt-2 flex flex-col gap-2">
                 <p>
                   The map is MapLibre GL, on OpenFreeMap&apos;s Positron style, which is OpenStreetMap data. The
-                  world roads, land, and ice are Natural Earth 1:10 million, public domain.
+                  world roads are GRIP4 (CC0); land and ice are Natural Earth 1:10 million, public domain.
                 </p>
                 <p>
                   Distance is a Euclidean distance transform: roads are burned into a grid, then each cell takes
@@ -744,8 +744,8 @@ export function Explorer() {
                   the Overpass API and a finer grid, still Euclidean, still in the browser.
                 </p>
                 <p>
-                  A fairer world layer would use a consistent global road inventory, such as GRIP, or an OpenStreetMap
-                  extract of the same highway classes everywhere. That is the obvious next measurement.
+                  GRIP local/urban roads (type 5) are omitted here to keep the GitHub Pages bundle practical. A further
+                  step would add them, or match OpenStreetMap highway classes globally.
                 </p>
               </div>
             </details>

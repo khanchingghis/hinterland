@@ -29,7 +29,7 @@ Distance means straight-line distance to the nearest road centerline, in meters.
 2. Run a separable Euclidean distance transform ([Felzenszwalb & Huttenlocher 2012](https://cs.brown.edu/people/pfelzens/papers/dt-final.pdf)), with empty columns kept at infinity so the squared distances do not overflow.
 3. Classify each cell into distance bands.
 
-The world grid is computed in overlapping latitude bands. Inside a band, cell width uses the meters in a degree of longitude at that latitude, so the poles are not stretched. The antimeridian is padded so roads in Alaska and Chukotka can be each other’s nearest road. Ferry routes are left out.
+The world grid is computed in overlapping latitude bands. Inside a band, cell width uses the meters in a degree of longitude at that latitude, so the poles are not stretched. The antimeridian is padded so roads in Alaska and Chukotka can be each other’s nearest road. Ferry routes are not in GRIP and are not burned.
 
 Zoomed-out pixels use the median class of the cells they cover, so a thin road corridor does not disappear. From zoom level 4 upward, a pixel is the cell under its center.
 
@@ -41,31 +41,43 @@ A local study uses the same transform on a projected meter grid for that frame. 
 | --- | --- |
 | [MapLibre GL JS](https://maplibre.org/) | Map, image overlay, and interaction |
 | [OpenFreeMap](https://openfreemap.org/) Positron | Basemap. OpenStreetMap data, no API key |
-| [Natural Earth](https://www.naturalearthdata.com/) 1:10m | World roads, land, and ice. Public domain |
+| [GRIP4](https://www.globio.info/download-grip-dataset) | World roads (types 1–4: highway through tertiary). CC0 |
+| [Natural Earth](https://www.naturalearthdata.com/) 1:10m | Land and ice masks. Public domain |
 | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) | Live OpenStreetMap roads for a study |
 | Distance transform in `src/lib/geo/edt.ts` | The measurement |
 
-Natural Earth is not a consistent global road inventory. Secondary highways in the 1:10m file are concentrated in North America and Europe. Remote colors in Africa, Asia, and South America are partly gaps in that source. A next measurement should use a harmonized dataset such as the [Global Roads Inventory Project](https://www.globio.info/download-grip-dataset), or an OpenStreetMap extract that uses the same highway classes everywhere.
+The world distance field uses **GRIP4** road types 1–4 (highway, primary, secondary, tertiary). GRIP type 5 (local/urban) is omitted so the static overlay stays within a practical size for GitHub Pages (~150 MB gzip across seven regional files, loaded by viewport). That is denser and more globally even than Natural Earth 1:10m, but still coarser than a full OpenStreetMap burn.
 
 The in-map list titled **Decisions still open** is the set of product questions this prototype is meant to pin down: what counts as a road, straight-line distance versus travel time, how to treat water and ice, whether the subject is the planet or the place in front of you, and whether classes or a continuous ramp should lead.
 
-On this road layer, about 24% of land is more than 100 km from the nearest mapped road. Beyond 500 km is 12% of land with the ice sheets included, and about 3% with them hidden. Sample cells: London 3 km, Manhattan on a road, the western Amazon about 390 km, the Simpson Desert about 350 km, central Greenland about 1,200 km.
+Sample cells update when you rebuild the world layer; after the GRIP switch, expect more land in nearer bands outside Europe and North America.
 
 ## Rebuild the world layer
 
-The raw GeoJSON is not committed. The script downloads nothing by itself; place these files in `data/raw/`:
+Raw inputs are not committed. You need **GDAL** (`ogr2ogr`) on your PATH.
 
-- `ne_10m_roads.geojson`
+### Natural Earth (land and ice)
+
+Place in `data/raw/`:
+
 - `ne_10m_land.geojson`
 - `ne_10m_glaciated_areas.geojson`
 
-They come from [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector/tree/master/geojson). Then:
+From [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector/tree/master/geojson).
+
+### GRIP4 (roads)
+
+Download the seven regional **FileGDB** archives from [Zenodo](https://zenodo.org/records/6420961) (or [globio.info](https://www.globio.info/download-grip-dataset)). Unzip each into `data/raw/grip/` so you have:
+
+- `data/raw/grip/GRIP4_region1.gdb` … `GRIP4_region7.gdb`
+
+### Build
 
 ```bash
 npm run world
 ```
 
-That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads.geojson` (the Natural Earth lines used for the world “Show roads used” overlay).
+That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads/` (gzip GeoJSON sequences plus `manifest.json` for the **Show roads used** overlay). The build streams each region for rasterization (about 0.012° simplify) and writes a slightly coarser overlay (0.05° simplify).
 
 ## GitHub Pages
 
