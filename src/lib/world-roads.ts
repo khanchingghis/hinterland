@@ -26,6 +26,7 @@ type WorldRoadsManifest = {
   regions: {
     id: string;
     file: string;
+    detailFile?: string;
     west: number;
     south: number;
     east: number;
@@ -49,9 +50,14 @@ type GeoJsonFeature = {
 export const WORLD_ROADS_HIGHWAY_OVERVIEW_MAX_ZOOM = 3;
 /** Zoom ≤ this (and > highway max) uses the major-road overview (types 1–2). */
 export const WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM = 6;
+/** Zoom ≥ this uses per-region detail gzip when present (dense highway/primary). */
+export const WORLD_ROADS_DETAIL_MIN_ZOOM = 11;
 
 let manifestPromise: Promise<WorldRoadsManifest> | null = null;
 const loadedRegionFiles = new Map<string, WorldRoadLine[]>();
+const loadedRegionDetailFiles = new Map<string, WorldRoadLine[]>();
+
+const COARSE_SUPPLEMENT_TYPES = new Set(["Secondary", "Secondary Highway", "Tertiary", "Road"]);
 const overviewCache = new Map<string, FeatureCollection>();
 
 function yieldToMain(): Promise<void> {
@@ -213,15 +219,19 @@ async function streamNdjsonGzip(
   }
 }
 
-async function loadRegionFile(file: string, signal?: AbortSignal): Promise<WorldRoadLine[]> {
-  if (loadedRegionFiles.has(file)) return loadedRegionFiles.get(file)!;
+async function loadRegionFile(
+  file: string,
+  cache: Map<string, WorldRoadLine[]>,
+  signal?: AbortSignal,
+): Promise<WorldRoadLine[]> {
+  if (cache.has(file)) return cache.get(file)!;
   const lines: WorldRoadLine[] = [];
   await streamNdjsonGzip(publicPath(`/world-roads/${file}`), signal, (row) => {
     const rtp = row.properties?.GP_RTP ?? 99;
     if (rtp > 4) return;
     lines.push(...parseFeatureLines(row));
   });
-  loadedRegionFiles.set(file, lines);
+  cache.set(file, lines);
   return lines;
 }
 
@@ -296,7 +306,7 @@ export async function ensureWorldRoadInventory(bounds?: BBox | null): Promise<Wo
   const needed = manifest.regions.filter((region) => regionIntersectsBounds(region, box, pad));
   for (const region of needed) {
     if (!loadedRegionFiles.has(region.file)) {
-      await loadRegionFile(region.file);
+      await loadRegionFile(region.file, loadedRegionFiles);
     }
   }
   const lines: WorldRoadLine[] = [];
@@ -334,19 +344,50 @@ export async function loadWorldRoadGeoJson(
 
   const pad = 0.5;
   const needed = manifest.regions.filter((region) => regionIntersectsBounds(region, bounds, pad));
-  for (const region of needed) {
-    if (!loadedRegionFiles.has(region.file)) {
-      await loadRegionFile(region.file, signal);
+  const useDetail = zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM;
+
+  async function regionLines(
+    region: WorldRoadsManifest["regions"][number],
+  ): Promise<WorldRoadLine[]> {
+    if (useDetail && region.detailFile) {
+      let detail: WorldRoadLine[] = [];
+      try {
+        if (!loadedRegionDetailFiles.has(region.detailFile)) {
+          await loadRegionFile(region.detailFile, loadedRegionDetailFiles, signal);
+        }
+        detail = loadedRegionDetailFiles.get(region.detailFile) ?? [];
+      } catch {
+        detail = [];
+      }
+      if (!loadedRegionFiles.has(region.file)) {
+        await loadRegionFile(region.file, loadedRegionFiles, signal);
+      }
+      const coarse = loadedRegionFiles.get(region.file) ?? [];
+      const supplement = coarse.filter((line) => COARSE_SUPPLEMENT_TYPES.has(line.type));
+      if (detail.length > 0) return [...detail, ...supplement];
+      return coarse;
     }
+    if (!loadedRegionFiles.has(region.file)) {
+      await loadRegionFile(region.file, loadedRegionFiles, signal);
+    }
+    return loadedRegionFiles.get(region.file) ?? [];
   }
+
   const lines: WorldRoadLine[] = [];
   const viewPad = 0.25;
   for (const region of needed) {
-    for (const line of loadedRegionFiles.get(region.file) ?? []) {
+    for (const line of await regionLines(region)) {
       if (lineIntersectsBounds(line, bounds, viewPad)) lines.push(line);
     }
   }
   return linesToFeatureCollection(lines);
+}
+
+/** Douglas-Peucker tolerance (degrees) for the MapLibre GeoJSON source; 0 at detail zoom. */
+export function worldRoadGeoJsonTolerance(zoom: number): number {
+  if (zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM) return 0;
+  if (zoom <= WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM) return 0.5;
+  return 0.15;
 }
 
 /** Preload manifest only (tiny); road geometry loads when the overlay is enabled. */

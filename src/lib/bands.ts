@@ -10,13 +10,20 @@ export type Band = {
 };
 
 /**
- * Planetary classes. The world grid is ~5 km at the equator; the first two
- * bands split the near-road corridor so dense GRIP networks do not read as one flat tone.
+ * Planetary classes. The world grid is ~5 km at the equator; the first bands
+ * split the near-road corridor so dense GRIP networks do not read as one flat tone.
  */
 export const WORLD_BANDS: Band[] = [
   {
     id: "verge",
-    label: "Under 5 km",
+    label: "Under 1 km",
+    detail: "Right beside the mapped road network",
+    maxMeters: 1_000,
+    color: [252, 244, 228],
+  },
+  {
+    id: "roadside",
+    label: "1–5 km",
     detail: "Beside the mapped road network",
     maxMeters: 5_000,
     color: [245, 232, 196],

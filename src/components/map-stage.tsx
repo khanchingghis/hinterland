@@ -9,6 +9,8 @@ import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import {
   loadWorldRoadGeoJson,
+  WORLD_ROADS_DETAIL_MIN_ZOOM,
+  worldRoadGeoJsonTolerance,
   worldRoadLineCasingWidthExpression,
   worldRoadLineColorExpression,
   worldRoadLineWidthExpression,
@@ -274,7 +276,7 @@ export function MapStage({
       map.addSource(WORLD_ROADS_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
-        tolerance: 0.75,
+        tolerance: worldRoadGeoJsonTolerance(map.getZoom()),
       });
       map.addLayer({
         id: WORLD_ROADS_CASING_LAYER,
@@ -308,8 +310,9 @@ export function MapStage({
     const zoom = map.getZoom();
     if (zoom <= 3) return "overview-highway";
     if (zoom <= 6) return "overview-major";
+    const tier = zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM ? "detail" : "regional";
     const q = (value: number) => (Math.round(value * 4) / 4).toFixed(2);
-    return `regional:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
+    return `${tier}:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
   };
 
   const refreshWorldRoadInventory = (map: maplibregl.Map) => {
@@ -330,14 +333,15 @@ export function MapStage({
     worldRoadsInFlightModeRef.current = modeKey;
     onWorldRoadsLoadingChangeRef.current?.(true);
     ensureWorldRoadLayers(map);
-    void loadWorldRoadGeoJson(bounds, map.getZoom(), abort.signal)
+    const zoom = map.getZoom();
+    void loadWorldRoadGeoJson(bounds, zoom, abort.signal)
       .then((collection) => {
         worldRoadsInFlightModeRef.current = null;
         onWorldRoadsLoadingChangeRef.current?.(false);
         if (worldRoadsLoadRef.current !== token || !shouldDrawWorldRoads(map)) return;
         worldRoadsModeRef.current = modeKey;
-        const source = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
-        source?.setData(collection);
+        const active = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
+        active?.setData(collection);
       })
       .catch((error: unknown) => {
         worldRoadsInFlightModeRef.current = null;
