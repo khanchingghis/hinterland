@@ -2,17 +2,16 @@
 
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import * as maplibregl from "maplibre-gl";
-import type { MapMouseEvent, RasterTileSource } from "maplibre-gl";
+import type { MapMouseEvent, RasterTileSource, GeoJSONSource } from "maplibre-gl";
 import type { StudyRaster } from "@/lib/geo/paint";
 import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
 import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import {
-  lineWidthForZoom,
-  linesInBounds,
-  ensureWorldRoadInventory,
-  strokeColorForRoadType,
-  type WorldRoadInventory,
+  loadWorldRoadGeoJson,
+  worldRoadLineCasingWidthExpression,
+  worldRoadLineColorExpression,
+  worldRoadLineWidthExpression,
 } from "@/lib/world-roads";
 import { publicPath } from "@/lib/base-path";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -23,6 +22,9 @@ maplibregl.setWorkerUrl(publicPath("/vendor/maplibre-gl-worker.mjs"));
 
 const WORLD_TILES = publicPath("/tiles/{z}/{x}/{y}.png");
 const WORLD_TILES_NO_ICE = publicPath("/tiles-no-ice/{z}/{x}/{y}.png");
+const WORLD_ROADS_SOURCE = "hinterland-world-roads";
+const WORLD_ROADS_CASING_LAYER = "hinterland-world-roads-casing";
+const WORLD_ROADS_LINE_LAYER = "hinterland-world-roads-line";
 
 export type MapNote = {
   lng: number;
@@ -144,37 +146,6 @@ function paintOverlay(
   context.stroke();
 }
 
-function drawWorldRoadsOnCanvas(
-  map: maplibregl.Map,
-  context: CanvasRenderingContext2D,
-  inventory: WorldRoadInventory,
-  bounds: BBox,
-  ratio: number,
-) {
-  const zoom = map.getZoom();
-  const width = lineWidthForZoom(zoom);
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  for (const line of linesInBounds(inventory, bounds)) {
-    context.beginPath();
-    for (let i = 0; i < line.coords.length; i++) {
-      const point = map.project(line.coords[i]);
-      if (i === 0) context.moveTo(point.x, point.y);
-      else context.lineTo(point.x, point.y);
-    }
-    context.strokeStyle = "rgba(255,248,240,0.85)";
-    context.globalAlpha = 1;
-    context.lineWidth = width + 2.2;
-    context.stroke();
-    context.strokeStyle = strokeColorForRoadType(line.type);
-    context.globalAlpha = 0.95;
-    context.lineWidth = width;
-    context.stroke();
-  }
-  context.globalAlpha = 1;
-}
-
 function rasterImage(raster: StudyRaster): HTMLCanvasElement | null {
   const image = document.createElement("canvas");
   image.width = raster.width;
@@ -219,7 +190,6 @@ export function MapStage({
 }: MapStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
-  const roadsOverlayRef = useRef<HTMLCanvasElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const readyRef = useRef(false);
@@ -228,8 +198,9 @@ export function MapStage({
   const worldImageRef = useRef<HTMLCanvasElement | null>(null);
   const worldBoundsRef = useRef<BBox | null>(null);
   const roadLayerIdsRef = useRef<string[]>([]);
-  const worldRoadInventoryRef = useRef<WorldRoadInventory | null>(null);
   const worldRoadsLoadRef = useRef(0);
+  const worldRoadsAbortRef = useRef<AbortController | null>(null);
+  const worldRoadsModeRef = useRef<string>("");
   const showWorldRoadsRef = useRef(showWorldRoads);
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
@@ -278,17 +249,87 @@ export function MapStage({
     }
   };
 
+  const clearWorldRoadOverlay = (map: maplibregl.Map) => {
+    worldRoadsAbortRef.current?.abort();
+    worldRoadsAbortRef.current = null;
+    worldRoadsModeRef.current = "";
+    const source = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
+    source?.setData({ type: "FeatureCollection", features: [] });
+    for (const id of [WORLD_ROADS_CASING_LAYER, WORLD_ROADS_LINE_LAYER]) {
+      if (!map.getLayer(id)) continue;
+      map.setLayoutProperty(id, "visibility", "none");
+    }
+  };
+
+  const ensureWorldRoadLayers = (map: maplibregl.Map) => {
+    if (!map.getSource(WORLD_ROADS_SOURCE)) {
+      map.addSource(WORLD_ROADS_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+        tolerance: 0.75,
+      });
+      map.addLayer({
+        id: WORLD_ROADS_CASING_LAYER,
+        type: "line",
+        source: WORLD_ROADS_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "rgba(255,248,240,0.85)",
+          "line-width": worldRoadLineCasingWidthExpression(),
+        },
+      });
+      map.addLayer({
+        id: WORLD_ROADS_LINE_LAYER,
+        type: "line",
+        source: WORLD_ROADS_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": worldRoadLineColorExpression(),
+          "line-opacity": 0.95,
+          "line-width": worldRoadLineWidthExpression(),
+        },
+      });
+    }
+    for (const id of [WORLD_ROADS_CASING_LAYER, WORLD_ROADS_LINE_LAYER]) {
+      if (!map.getLayer(id)) continue;
+      map.setLayoutProperty(id, "visibility", "visible");
+    }
+  };
+
+  const roadLoadModeKey = (map: maplibregl.Map, bounds: BBox): string => {
+    const zoom = map.getZoom();
+    if (zoom <= 3) return "overview-highway";
+    if (zoom <= 6) return "overview-major";
+    const q = (value: number) => (Math.round(value * 4) / 4).toFixed(2);
+    return `regional:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
+  };
+
   const refreshWorldRoadInventory = (map: maplibregl.Map) => {
-    if (!shouldDrawWorldRoads(map)) return;
+    if (!shouldDrawWorldRoads(map)) {
+      clearWorldRoadOverlay(map);
+      return;
+    }
     const bounds = asBounds(map.getBounds());
     if (!bounds) return;
+    const modeKey = roadLoadModeKey(map, bounds);
+    if (modeKey === worldRoadsModeRef.current) return;
     const token = worldRoadsLoadRef.current + 1;
     worldRoadsLoadRef.current = token;
-    void ensureWorldRoadInventory(bounds).then((inventory) => {
-      if (worldRoadsLoadRef.current !== token) return;
-      worldRoadInventoryRef.current = inventory;
-      redraw();
-    });
+    worldRoadsAbortRef.current?.abort();
+    const abort = new AbortController();
+    worldRoadsAbortRef.current = abort;
+    ensureWorldRoadLayers(map);
+    void loadWorldRoadGeoJson(bounds, map.getZoom(), abort.signal)
+      .then((collection) => {
+        if (worldRoadsLoadRef.current !== token || !shouldDrawWorldRoads(map)) return;
+        worldRoadsModeRef.current = modeKey;
+        const source = map.getSource(WORLD_ROADS_SOURCE) as GeoJSONSource | undefined;
+        source?.setData(collection);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      });
   };
 
   const refreshWorldOverlay = (map: maplibregl.Map) => {
@@ -313,30 +354,13 @@ export function MapStage({
   const redraw = () => {
     const map = mapRef.current;
     const canvas = overlayRef.current;
-    const roadsCanvas = roadsOverlayRef.current;
     if (!map || !canvas) return;
     const study = studyImageRef.current && studyBoundsRef.current;
     if (study) {
       paintOverlay(map, canvas, studyImageRef.current, studyBoundsRef.current, true);
-      if (roadsCanvas) {
-        const context = resizeOverlayCanvas(map, roadsCanvas);
-        context?.clearRect(0, 0, map.getContainer().clientWidth, map.getContainer().clientHeight);
-      }
       return;
     }
     paintOverlay(map, canvas, worldImageRef.current, worldBoundsRef.current, false);
-    if (!roadsCanvas) return;
-    const roadContext = resizeOverlayCanvas(map, roadsCanvas);
-    if (!roadContext) return;
-    roadContext.clearRect(0, 0, map.getContainer().clientWidth, map.getContainer().clientHeight);
-    if (shouldDrawWorldRoads(map)) {
-      const bounds = asBounds(map.getBounds());
-      const inventory = worldRoadInventoryRef.current;
-      if (bounds && inventory) {
-        const ratio = window.devicePixelRatio || 1;
-        drawWorldRoadsOnCanvas(map, roadContext, inventory, bounds, ratio);
-      }
-    }
   };
 
   const refreshView = () => {
@@ -344,6 +368,7 @@ export function MapStage({
     if (!map || !readyRef.current) return;
     refreshWorldOverlay(map);
     syncBasemapAndTiles(map);
+    refreshWorldRoadInventory(map);
     redraw();
   };
 
@@ -418,12 +443,6 @@ export function MapStage({
     map.getContainer().appendChild(overlay);
     overlayRef.current = overlay;
 
-    const roadsOverlay = document.createElement("canvas");
-    roadsOverlay.className = "hinterland-world-roads";
-    roadsOverlay.setAttribute("aria-hidden", "true");
-    map.getContainer().appendChild(roadsOverlay);
-    roadsOverlayRef.current = roadsOverlay;
-
     popupRef.current = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: false,
@@ -493,8 +512,6 @@ export function MapStage({
       readyRef.current = false;
       overlay.remove();
       overlayRef.current = null;
-      roadsOverlay.remove();
-      roadsOverlayRef.current = null;
       popupRef.current?.remove();
       map.remove();
       mapRef.current = null;
@@ -531,10 +548,12 @@ export function MapStage({
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
     if (!showWorldRoads) {
-      worldRoadInventoryRef.current = null;
+      worldRoadsLoadRef.current += 1;
+      clearWorldRoadOverlay(map);
       refreshView();
       return;
     }
+    worldRoadsModeRef.current = "";
     refreshWorldRoadInventory(map);
   }, [showWorldRoads]);
 

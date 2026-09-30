@@ -38,7 +38,7 @@ import {
   type BBox,
 } from "@/lib/roads";
 import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
-import { loadWorldRoadInventory } from "@/lib/world-roads";
+import { preloadWorldRoadsManifest } from "@/lib/world-roads";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
 type LegendMode = "world" | "study";
@@ -149,7 +149,7 @@ export function Explorer() {
   }, []);
 
   useEffect(() => {
-    void loadWorldRoadInventory();
+    void preloadWorldRoadsManifest();
   }, []);
 
   useEffect(() => {

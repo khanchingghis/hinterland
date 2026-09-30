@@ -1,1 +1,29 @@
-{"source":"GRIP4 (Global Roads Inventory Project, Meijer et al. 2018, CC0)","roadTypes":"Highway through tertiary (GRIP types 1–4)","excluded":["Ferry routes (not present in GRIP)","Local/urban roads (GRIP type 5) omitted for bundle size"],"regions":[{"id":"1","file":"grip-region-1.ndjson.gz","west":-167,"south":17,"east":-52,"north":72},{"id":"2","file":"grip-region-2.ndjson.gz","west":-118,"south":-56,"east":-32,"north":33},{"id":"3","file":"grip-region-3.ndjson.gz","west":-26,"south":-38,"east":58,"north":38},{"id":"4","file":"grip-region-4.ndjson.gz","west":-25,"south":5,"east":106,"north":72},{"id":"5","file":"grip-region-5.ndjson.gz","west":-180,"south":12,"east":180,"north":74},{"id":"6","file":"grip-region-6.ndjson.gz","west":60,"south":-11,"east":156,"north":54},{"id":"7","file":"grip-region-7.ndjson.gz","west":-180,"south":-50,"east":180,"north":16}]}
+{
+  "source": "GRIP4 (Global Roads Inventory Project, Meijer et al. 2018, CC0)",
+  "roadTypes": "Highway through tertiary (GRIP types 1–4)",
+  "excluded": [
+    "Ferry routes (not present in GRIP)",
+    "Local/urban roads (GRIP type 5) omitted for bundle size"
+  ],
+  "overviews": {
+    "highway": {
+      "file": "grip-overview-highway.ndjson.gz",
+      "maxZoom": 3,
+      "maxRoadType": 1
+    },
+    "major": {
+      "file": "grip-overview-major.ndjson.gz",
+      "maxZoom": 6,
+      "maxRoadType": 2
+    }
+  },
+  "regions": [
+    { "id": "1", "file": "grip-region-1.ndjson.gz", "west": -167, "south": 17, "east": -52, "north": 72 },
+    { "id": "2", "file": "grip-region-2.ndjson.gz", "west": -118, "south": -56, "east": -32, "north": 33 },
+    { "id": "3", "file": "grip-region-3.ndjson.gz", "west": -26, "south": -38, "east": 58, "north": 38 },
+    { "id": "4", "file": "grip-region-4.ndjson.gz", "west": -25, "south": 5, "east": 106, "north": 72 },
+    { "id": "5", "file": "grip-region-5.ndjson.gz", "west": -180, "south": 12, "east": 180, "north": 74 },
+    { "id": "6", "file": "grip-region-6.ndjson.gz", "west": 60, "south": -11, "east": 156, "north": 54 },
+    { "id": "7", "file": "grip-region-7.ndjson.gz", "west": -180, "south": -50, "east": 180, "north": 16 }
+  ]
+}

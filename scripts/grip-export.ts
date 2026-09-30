@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import path from "node:path";
-import { gzipSync } from "node:zlib";
+import { finished } from "node:stream/promises";
+import { createGunzip, gzipSync } from "node:zlib";
 import { GRIP_MAX_ROAD_TYPE, GRIP_REGIONS, gripRoadTypeLabel } from "../src/lib/grip-inventory";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -88,6 +89,18 @@ export function writeWorldRoadsManifest(): void {
       "Ferry routes (not present in GRIP)",
       "Local/urban roads (GRIP type 5) omitted for bundle size",
     ],
+    overviews: {
+      highway: {
+        file: "grip-overview-highway.ndjson.gz",
+        maxZoom: 3,
+        maxRoadType: 1,
+      },
+      major: {
+        file: "grip-overview-major.ndjson.gz",
+        maxZoom: 6,
+        maxRoadType: 2,
+      },
+    },
     regions: GRIP_REGIONS.map(({ id, file, west, south, east, north }) => ({
       id,
       file,
@@ -98,6 +111,45 @@ export function writeWorldRoadsManifest(): void {
     })),
   };
   writeFileSync(path.join(WORLD_ROADS_DIR, "manifest.json"), JSON.stringify(manifest));
+}
+
+export async function buildGripOverviewAssets(): Promise<void> {
+  mkdirSync(WORLD_ROADS_DIR, { recursive: true });
+  const regionGzFiles = GRIP_REGIONS.map((region) => path.join(WORLD_ROADS_DIR, region.file));
+  for (const file of regionGzFiles) {
+    if (!existsSync(file)) {
+      throw new Error(`Missing ${file}. Run buildGripOverlayAssets first.`);
+    }
+  }
+  for (const { label, maxRoadType, outFile } of [
+    { label: "highway", maxRoadType: 1, outFile: "grip-overview-highway.ndjson.gz" },
+    { label: "major", maxRoadType: 2, outFile: "grip-overview-major.ndjson.gz" },
+  ]) {
+    console.log(`  overview ${label} (GP_RTP <= ${maxRoadType})`);
+    const seq = path.join(WORLD_ROADS_DIR, `grip-overview-${label}.ndjson`);
+    const gz = path.join(WORLD_ROADS_DIR, outFile);
+    const out = createWriteStream(seq, { encoding: "utf8" });
+    for (const regionGz of regionGzFiles) {
+      const lines = createInterface({
+        input: createReadStream(regionGz).pipe(createGunzip()),
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const feature = JSON.parse(trimmed) as GripFeature;
+        const rtp = Number(feature.properties.GP_RTP ?? 99);
+        if (rtp > maxRoadType) continue;
+        out.write(`${trimmed}\n`);
+      }
+    }
+    out.end();
+    await finished(out);
+    gzipFile(seq, gz);
+    unlinkSync(seq);
+    console.log(`    ${outFile} ${Math.round(readFileSize(gz) / 1024 / 1024)} MB`);
+  }
+  writeWorldRoadsManifest();
 }
 
 export async function rasterizeGripSeqFile(
