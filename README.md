@@ -77,7 +77,9 @@ Download the seven regional **FileGDB** archives from [Zenodo](https://zenodo.or
 npm run world
 ```
 
-That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads/` (seven regional gzip GeoJSON sequences, two global overview files for low zoom, plus `manifest.json` for the **Show roads used** overlay). The build streams each region for rasterization (about 0.012° simplify) and writes a slightly coarser overlay (0.05° simplify).
+That rewrites `public/tiles`, `public/tiles-no-ice`, `public/world-field.png`, `public/world-meta.json`, and `public/world-roads/` (seven regional gzip GeoJSON sequences at 0.05° simplify, optional per-region `*-detail.ndjson.gz` with full-resolution highway/primary for zoom ≥ 11, two global overview files for low zoom, plus `manifest.json` for the **Show roads used** overlay). The distance field rasterizes at 0.012° simplify. Without GRIP GDBs, `npm run world` reuses the committed gzip files.
+
+To rebuild one high-zoom overlay region: `npx tsx scripts/build-grip-detail-region.ts 4` (Europe).
 
 ## GitHub Pages
 

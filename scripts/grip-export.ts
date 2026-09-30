@@ -20,7 +20,7 @@ export type GripFeature = {
   geometry: Geometry | null;
 };
 
-function gripGdbPath(regionId: string): string {
+export function gripGdbPath(regionId: string): string {
   return path.join(GRIP_RAW_DIR, `GRIP4_region${regionId}.gdb`);
 }
 
@@ -51,28 +51,27 @@ export function exportGripRegionSeq(
   regionId: string,
   outPath: string,
   simplifyDeg: number,
+  maxRoadType = GRIP_MAX_ROAD_TYPE,
 ): void {
   const gdb = gripGdbPath(regionId);
   const layer = gripLayerName(regionId);
-  const sql = `SELECT ${gripTypeSqlCase()} AS type, * FROM ${layer} WHERE GP_RTP <= ${GRIP_MAX_ROAD_TYPE}`;
-  execFileSync(
-    "ogr2ogr",
-    [
-      "-f",
-      "GeoJSONSeq",
-      outPath,
-      gdb,
-      "-dialect",
-      "SQLite",
-      "-sql",
-      sql,
-      "-simplify",
-      String(simplifyDeg),
-      "-lco",
-      "COORDINATE_PRECISION=5",
-    ],
-    { stdio: "inherit" },
-  );
+  const sql = `SELECT ${gripTypeSqlCase()} AS type, * FROM ${layer} WHERE GP_RTP <= ${maxRoadType}`;
+  const args = [
+    "-f",
+    "GeoJSONSeq",
+    outPath,
+    gdb,
+    "-dialect",
+    "SQLite",
+    "-sql",
+    sql,
+    "-lco",
+    "COORDINATE_PRECISION=5",
+  ];
+  if (simplifyDeg > 0) {
+    args.push("-simplify", String(simplifyDeg));
+  }
+  execFileSync("ogr2ogr", args, { stdio: "inherit" });
 }
 
 export function gzipFile(inPath: string, outPath: string): void {
@@ -101,9 +100,10 @@ export function writeWorldRoadsManifest(): void {
         maxRoadType: 2,
       },
     },
-    regions: GRIP_REGIONS.map(({ id, file, west, south, east, north }) => ({
+    regions: GRIP_REGIONS.map(({ id, file, detailFile, west, south, east, north }) => ({
       id,
       file,
+      ...(detailFile ? { detailFile } : {}),
       west,
       south,
       east,
@@ -232,9 +232,17 @@ export async function rasterizeGripSeqFile(
   }
 }
 
+/** Coarse regional overlay for mid zoom (z 7–10). */
+const OVERLAY_SIMPLIFY = 0.05;
+/**
+ * High-zoom overlay: unsimplified highway/primary geometry (types 1–2) so motorways
+ * keep curvature; tertiary stays on the 0.05° regional tier.
+ */
+const OVERLAY_DETAIL_MAX_ROAD_TYPE = 2;
+const OVERLAY_DETAIL_SIMPLIFY = 0;
+
 export function buildGripOverlayAssets(): void {
   mkdirSync(WORLD_ROADS_DIR, { recursive: true });
-  const OVERLAY_SIMPLIFY = 0.05;
   for (const region of GRIP_REGIONS) {
     const seq = path.join(WORLD_ROADS_DIR, `grip-region-${region.id}.ndjson`);
     const gz = path.join(WORLD_ROADS_DIR, region.file);
@@ -243,6 +251,21 @@ export function buildGripOverlayAssets(): void {
     gzipFile(seq, gz);
     unlinkSync(seq);
     console.log(`    ${region.file} ${Math.round(readFileSize(gz) / 1024 / 1024)} MB`);
+  }
+  writeWorldRoadsManifest();
+}
+
+export function buildGripDetailOverlayAssets(): void {
+  mkdirSync(WORLD_ROADS_DIR, { recursive: true });
+  for (const region of GRIP_REGIONS) {
+    const detailFile = region.detailFile ?? `grip-region-${region.id}-detail.ndjson.gz`;
+    const seq = path.join(WORLD_ROADS_DIR, `grip-region-${region.id}-detail.ndjson`);
+    const gz = path.join(WORLD_ROADS_DIR, detailFile);
+    console.log(`  overlay detail region ${region.id} (types 1–${OVERLAY_DETAIL_MAX_ROAD_TYPE})`);
+    exportGripRegionSeq(region.id, seq, OVERLAY_DETAIL_SIMPLIFY, OVERLAY_DETAIL_MAX_ROAD_TYPE);
+    gzipFile(seq, gz);
+    unlinkSync(seq);
+    console.log(`    ${detailFile} ${Math.round(readFileSize(gz) / 1024 / 1024)} MB`);
   }
   writeWorldRoadsManifest();
 }

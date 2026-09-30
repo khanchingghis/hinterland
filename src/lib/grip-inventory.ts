@@ -19,6 +19,8 @@ export function gripRoadTypeLabel(code: number): string {
 export type GripRegionMeta = {
   id: string;
   file: string;
+  /** Higher-zoom overlay (finer simplify); optional until rebuilt from GRIP GDBs. */
+  detailFile?: string;
   west: number;
   south: number;
   east: number;
@@ -54,6 +56,7 @@ export const GRIP_REGIONS: GripRegionMeta[] = [
   {
     id: "4",
     file: "grip-region-4.ndjson.gz",
+    detailFile: "grip-region-4-detail.ndjson.gz",
     west: -25,
     south: 5,
     east: 106,

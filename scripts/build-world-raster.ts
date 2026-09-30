@@ -16,6 +16,7 @@ import os from "node:os";
 import {
   assertGripRegionsPresent,
   buildGripOverlayAssets,
+  buildGripDetailOverlayAssets,
   buildGripOverviewAssets,
   exportGripRegionSeq,
   rasterizeGripGzFile,
@@ -34,7 +35,7 @@ const COLS = Math.round(360 / RES);
 const ROWS = Math.round(180 / RES);
 const TILE = 256;
 const MAX_Z = 5;
-const KM_STEP = 5;
+const KM_STEP = 1;
 
 const ROOT = path.resolve(__dirname, "..");
 const RAW = path.join(ROOT, "data/raw");
@@ -529,6 +530,8 @@ async function main(): Promise<void> {
 
     console.log("writing road overlay assets");
     buildGripOverlayAssets();
+    console.log("writing road detail overlay assets (high zoom)");
+    buildGripDetailOverlayAssets();
     console.log("writing road overview assets (map overlay)");
     await buildGripOverviewAssets();
     const legacyRoads = path.join(ROOT, "public/world-roads.geojson");
