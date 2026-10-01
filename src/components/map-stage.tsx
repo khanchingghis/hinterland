@@ -5,19 +5,10 @@ import * as maplibregl from "maplibre-gl";
 import type { MapMouseEvent, RasterTileSource, GeoJSONSource } from "maplibre-gl";
 import type { StudyRaster } from "@/lib/geo/paint";
 import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
-import {
-  boundsOverlap,
-  fetchFieldDetailRegion,
-  regionsForBounds,
-  WORLD_FIELD_DETAIL_MIN_ZOOM,
-  type GeoWorldField,
-} from "@/lib/geo/world-field-detail";
-import type { WorldFieldDetailMeta } from "@/lib/world-types";
 import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import {
   loadWorldRoadGeoJson,
-  WORLD_ROADS_DETAIL_MIN_ZOOM,
   worldRoadGeoJsonTolerance,
   worldRoadLineCasingWidthExpression,
   worldRoadLineColorExpression,
@@ -58,7 +49,6 @@ type MapStageProps = {
   opacity: number;
   showWorldRoads: boolean;
   worldField: WorldField | null;
-  worldFieldDetailMeta: WorldFieldDetailMeta | null | undefined;
   worldTileMaxZoom: number;
   studyActive: boolean;
   guideBottomInset: number;
@@ -193,7 +183,6 @@ export function MapStage({
   opacity,
   showWorldRoads,
   worldField,
-  worldFieldDetailMeta,
   worldTileMaxZoom,
   studyActive,
   guideBottomInset,
@@ -221,10 +210,6 @@ export function MapStage({
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
   const worldFieldRef = useRef(worldField);
-  const worldFieldDetailMetaRef = useRef(worldFieldDetailMeta);
-  const worldFieldDetailRef = useRef<Map<string, GeoWorldField>>(new Map());
-  const worldFieldDetailLoadRef = useRef(0);
-  const worldFieldDetailAbortRef = useRef<AbortController | null>(null);
   const worldRoadsToleranceRef = useRef<number | null>(null);
   const worldTileMaxZoomRef = useRef(worldTileMaxZoom);
   const studyActiveRef = useRef(studyActive);
@@ -239,7 +224,6 @@ export function MapStage({
     opacityRef.current = opacity;
     showWorldRoadsRef.current = showWorldRoads;
     worldFieldRef.current = worldField;
-    worldFieldDetailMetaRef.current = worldFieldDetailMeta;
     worldTileMaxZoomRef.current = worldTileMaxZoom;
     studyActiveRef.current = studyActive;
     guideBottomInsetRef.current = guideBottomInset;
@@ -344,9 +328,8 @@ export function MapStage({
     const zoom = map.getZoom();
     if (zoom <= 3) return "overview-highway";
     if (zoom <= 6) return "overview-major";
-    const tier = zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM ? "detail" : "regional";
     const q = (value: number) => (Math.round(value * 4) / 4).toFixed(2);
-    return `${tier}:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
+    return `regional:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
   };
 
   const refreshWorldRoadInventory = (map: maplibregl.Map) => {
@@ -385,41 +368,6 @@ export function MapStage({
       });
   };
 
-  const syncWorldFieldDetail = (map: maplibregl.Map) => {
-    const meta = worldFieldDetailMetaRef.current;
-    const bounds = asBounds(map.getBounds());
-    if (!meta || !bounds || map.getZoom() < WORLD_FIELD_DETAIL_MIN_ZOOM) {
-      worldFieldDetailAbortRef.current?.abort();
-      worldFieldDetailAbortRef.current = null;
-      return;
-    }
-    const wanted = regionsForBounds(meta, bounds);
-    const cache = worldFieldDetailRef.current;
-    for (const id of [...cache.keys()]) {
-      if (!wanted.some((region) => region.id === id)) cache.delete(id);
-    }
-    const missing = wanted.filter((region) => !cache.has(region.id));
-    if (missing.length === 0) return;
-    const token = worldFieldDetailLoadRef.current + 1;
-    worldFieldDetailLoadRef.current = token;
-    worldFieldDetailAbortRef.current?.abort();
-    const abort = new AbortController();
-    worldFieldDetailAbortRef.current = abort;
-    void Promise.all(missing.map((region) => fetchFieldDetailRegion(region, abort.signal)))
-      .then((layers) => {
-        if (worldFieldDetailLoadRef.current !== token || abort.signal.aborted) return;
-        for (const layer of layers) {
-          if (layer) cache.set(layer.regionId, layer);
-        }
-        refreshWorldOverlay(map);
-        redraw();
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        console.error(error);
-      });
-  };
-
   const refreshWorldOverlay = (map: maplibregl.Map) => {
     if (!usesWorldDetailOverlay(map)) {
       worldImageRef.current = null;
@@ -429,19 +377,7 @@ export function MapStage({
     const field = worldFieldRef.current;
     const bounds = asBounds(map.getBounds());
     if (!field || !bounds) return;
-    const detailLayers =
-      map.getZoom() >= WORLD_FIELD_DETAIL_MIN_ZOOM
-        ? [...worldFieldDetailRef.current.values()].filter((layer) =>
-            boundsOverlap(bounds, layer.west, layer.south, layer.east, layer.north),
-          )
-        : [];
-    const painted = fieldRasterForBounds(
-      field,
-      bounds,
-      hideIceRef.current,
-      opacityRef.current,
-      detailLayers,
-    );
+    const painted = fieldRasterForBounds(field, bounds, hideIceRef.current, opacityRef.current);
     if (!painted) {
       worldImageRef.current = null;
       worldBoundsRef.current = null;
@@ -466,7 +402,6 @@ export function MapStage({
   const refreshView = () => {
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
-    syncWorldFieldDetail(map);
     refreshWorldOverlay(map);
     syncBasemapAndTiles(map);
     refreshWorldRoadInventory(map);
@@ -559,7 +494,6 @@ export function MapStage({
     };
 
     const onMapChange = () => {
-      syncWorldFieldDetail(map);
       refreshWorldOverlay(map);
       syncBasemapAndTiles(map);
       refreshWorldRoadInventory(map);
@@ -658,12 +592,8 @@ export function MapStage({
   }, [guideBottomInset]);
 
   useEffect(() => {
-    worldFieldDetailRef.current.clear();
-    worldFieldDetailLoadRef.current += 1;
-    worldFieldDetailAbortRef.current?.abort();
-    worldFieldDetailAbortRef.current = null;
     refreshView();
-  }, [worldField, worldFieldDetailMeta, worldTileMaxZoom, studyActive, showWorldRoads]);
+  }, [worldField, worldTileMaxZoom, studyActive, showWorldRoads]);
 
   useEffect(() => {
     const map = mapRef.current;
