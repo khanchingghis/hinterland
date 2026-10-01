@@ -571,7 +571,15 @@ export function MapStage({
       redraw();
     });
 
+    const onMapMotion = () => {
+      refreshWorldOverlay(map);
+      syncBasemapAndTiles(map);
+      redraw();
+    };
+
     map.on("render", redraw);
+    map.on("move", onMapMotion);
+    map.on("zoom", onMapMotion);
     map.on("moveend", onMapChange);
     map.on("zoomend", onMapChange);
     map.on("mousemove", (event: MapMouseEvent) => {
