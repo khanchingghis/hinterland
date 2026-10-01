@@ -38,10 +38,8 @@ import {
   type BBox,
 } from "@/lib/roads";
 import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
-import { loadFieldDetailManifest } from "@/lib/geo/world-field-detail";
 import { preloadWorldRoadsManifest } from "@/lib/world-roads";
 import { RoadsUsedSwitch } from "@/components/roads-used-switch";
-import type { WorldFieldDetailMeta } from "@/lib/world-types";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
 type LegendMode = "world" | "study";
@@ -70,7 +68,6 @@ export function Explorer() {
   const [worldField, setWorldField] = useState<WorldField | null>(null);
   const hoverRef = useRef("");
   const [meta, setMeta] = useState<WorldMeta | null>(null);
-  const [fieldDetailMeta, setFieldDetailMeta] = useState<WorldFieldDetailMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [hideIce, setHideIce] = useState(false);
   const [worldRoadsLoading, setWorldRoadsLoading] = useState(false);
@@ -143,10 +140,7 @@ export function Explorer() {
         return response.json() as Promise<WorldMeta>;
       })
       .then((body) => {
-        if (!cancelled) {
-          setMeta(body);
-          if (body.fieldDetail) setFieldDetailMeta(body.fieldDetail);
-        }
+        if (!cancelled) setMeta(body);
       })
       .catch(() => {
         if (!cancelled) setMetaError("The world summary did not load.");
@@ -159,17 +153,6 @@ export function Explorer() {
   useEffect(() => {
     void preloadWorldRoadsManifest();
   }, []);
-
-  useEffect(() => {
-    if (meta?.fieldDetail) return;
-    let cancelled = false;
-    void loadFieldDetailManifest().then((manifest) => {
-      if (!cancelled && manifest) setFieldDetailMeta(manifest);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [meta?.fieldDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -385,7 +368,6 @@ export function Explorer() {
         opacity={opacity / 100}
         showWorldRoads={showWorldRoads}
         worldField={worldField}
-        worldFieldDetailMeta={fieldDetailMeta ?? meta?.fieldDetail}
         worldTileMaxZoom={worldTileMaxZoom}
         studyActive={study != null}
         guideBottomInset={guideBottomInset}
@@ -546,9 +528,9 @@ export function Explorer() {
               )}
               <p className="text-xs leading-4 text-[#6d6458]">
                 Overlays the same GRIP4 inventory used for world distance (types 1–4: highway through tertiary), not
-                OpenStreetMap streets from the Positron basemap. From about zoom 9 in Europe, unsimplified highway and
-                primary geometry loads where a detail file exists; elsewhere you still see the 0.05° simplified regional
-                lines. At city zoom the basemap hides OSM roads so this overlay stays honest.
+                OpenStreetMap streets from the Positron basemap. Lines use the same simplified regional geometry that
+                built the ~5 km world grid, so they should not cut through cells classified as farther than the road
+                corridor. At city zoom the basemap hides OSM roads so this overlay stays honest.
                 {study ? " Hidden while a local OpenStreetMap study is active." : ""}
               </p>
               <div className="flex items-center justify-between gap-3">

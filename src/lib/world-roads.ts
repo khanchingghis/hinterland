@@ -50,14 +50,8 @@ type GeoJsonFeature = {
 export const WORLD_ROADS_HIGHWAY_OVERVIEW_MAX_ZOOM = 3;
 /** Zoom ≤ this (and > highway max) uses the major-road overview (types 1–2). */
 export const WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM = 6;
-/** Zoom ≥ this uses per-region detail gzip when present (dense highway/primary). */
-export const WORLD_ROADS_DETAIL_MIN_ZOOM = 9;
-
 let manifestPromise: Promise<WorldRoadsManifest> | null = null;
 const loadedRegionFiles = new Map<string, WorldRoadLine[]>();
-const loadedRegionDetailFiles = new Map<string, WorldRoadLine[]>();
-
-const COARSE_SUPPLEMENT_TYPES = new Set(["Secondary", "Secondary Highway", "Tertiary", "Road"]);
 const overviewCache = new Map<string, FeatureCollection>();
 
 function yieldToMain(): Promise<void> {
@@ -344,48 +338,21 @@ export async function loadWorldRoadGeoJson(
 
   const pad = 0.5;
   const needed = manifest.regions.filter((region) => regionIntersectsBounds(region, bounds, pad));
-  const useDetail = zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM;
-
-  async function regionLines(
-    region: WorldRoadsManifest["regions"][number],
-  ): Promise<WorldRoadLine[]> {
-    if (useDetail && region.detailFile) {
-      let detail: WorldRoadLine[] = [];
-      try {
-        if (!loadedRegionDetailFiles.has(region.detailFile)) {
-          await loadRegionFile(region.detailFile, loadedRegionDetailFiles, signal);
-        }
-        detail = loadedRegionDetailFiles.get(region.detailFile) ?? [];
-      } catch {
-        detail = [];
-      }
-      if (!loadedRegionFiles.has(region.file)) {
-        await loadRegionFile(region.file, loadedRegionFiles, signal);
-      }
-      const coarse = loadedRegionFiles.get(region.file) ?? [];
-      const supplement = coarse.filter((line) => COARSE_SUPPLEMENT_TYPES.has(line.type));
-      if (detail.length > 0) return [...detail, ...supplement];
-      return coarse;
-    }
-    if (!loadedRegionFiles.has(region.file)) {
-      await loadRegionFile(region.file, loadedRegionFiles, signal);
-    }
-    return loadedRegionFiles.get(region.file) ?? [];
-  }
-
   const lines: WorldRoadLine[] = [];
   const viewPad = 0.25;
   for (const region of needed) {
-    for (const line of await regionLines(region)) {
+    if (!loadedRegionFiles.has(region.file)) {
+      await loadRegionFile(region.file, loadedRegionFiles, signal);
+    }
+    for (const line of loadedRegionFiles.get(region.file) ?? []) {
       if (lineIntersectsBounds(line, bounds, viewPad)) lines.push(line);
     }
   }
   return linesToFeatureCollection(lines);
 }
 
-/** Douglas-Peucker tolerance (degrees) for the MapLibre GeoJSON source; 0 at detail zoom. */
+/** Douglas-Peucker tolerance (degrees) for the MapLibre GeoJSON source. */
 export function worldRoadGeoJsonTolerance(zoom: number): number {
-  if (zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM) return 0;
   if (zoom <= WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM) return 0.5;
   return 0.06;
 }

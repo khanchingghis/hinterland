@@ -32,12 +32,12 @@ type Feature = {
 
 type Edge = { y0: number; y1: number; x0: number; x1: number };
 
-function lonToX(lon: number, cols: number): number {
-  return ((lon + 180) / 360) * cols;
+function lonToX(lon: number, west: number, east: number, cols: number): number {
+  return ((lon - west) / (east - west)) * cols;
 }
 
-function latToY(lat: number, rows: number): number {
-  return ((90 - lat) / 180) * rows;
+function latToY(lat: number, south: number, north: number, rows: number): number {
+  return ((north - lat) / (north - south)) * rows;
 }
 
 function rasterizePolygonsInBox(
@@ -62,10 +62,10 @@ function rasterizePolygonsInBox(
         if (start[0] > east + 1 && end[0] > east + 1) continue;
         if (start[1] < south - 1 && end[1] < south - 1) continue;
         if (start[1] > north + 1 && end[1] > north + 1) continue;
-        let y0 = latToY(start[1], rows);
-        let x0 = lonToX(start[0], cols);
-        let y1 = latToY(end[1], rows);
-        let x1 = lonToX(end[0], cols);
+        let y0 = latToY(start[1], south, north, rows);
+        let x0 = lonToX(start[0], west, east, cols);
+        let y1 = latToY(end[1], south, north, rows);
+        let x1 = lonToX(end[0], west, east, cols);
         if (y0 === y1) continue;
         if (y0 > y1) {
           [y0, y1] = [y1, y0];
@@ -216,8 +216,10 @@ export async function buildRegionalFieldDetails(
     rasterizePolygonsInBox(iceFeatures, ice, cols, rows, box.west, box.east, box.south, box.north, true);
 
     const seeds = new Uint8Array(cols * rows);
-    const lonToCol = (lon: number) => Math.round(((lon - box.west) / (box.east - box.west)) * (cols - 1));
-    const latToRow = (lat: number) => Math.round(((box.north - lat) / (box.north - box.south)) * (rows - 1));
+    const lonToCol = (lon: number) =>
+      Math.min(cols - 1, Math.max(0, Math.floor((lon - box.west) / FIELD_DETAIL_RES)));
+    const latToRow = (lat: number) =>
+      Math.min(rows - 1, Math.max(0, Math.floor((box.north - lat) / FIELD_DETAIL_RES)));
 
     const draw = (a: [number, number], b: [number, number]) => {
       const x0 = lonToCol(a[0]);
