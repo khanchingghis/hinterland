@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 4317",
     "lint": "eslint",
-    "world": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-world-raster.ts"
+    "world": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-world-raster.ts",
+    "field-detail": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-field-detail-only.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
