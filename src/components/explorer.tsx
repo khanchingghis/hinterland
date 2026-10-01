@@ -545,9 +545,10 @@ export function Explorer() {
                 <p className="text-xs leading-4 text-[#6d6458]">Loading road lines… the global overview can take a minute.</p>
               )}
               <p className="text-xs leading-4 text-[#6d6458]">
-                Overlays the GRIP lines burned into the world distance field (types 1–4; local GRIP roads omitted for
-                size). These are not Positron basemap streets. At city zoom the basemap hides OSM roads so the overlay
-                stays honest; turn this on to see the inventory behind the colors.
+                Overlays the same GRIP4 inventory used for world distance (types 1–4: highway through tertiary), not
+                OpenStreetMap streets from the Positron basemap. From about zoom 9 in Europe, unsimplified highway and
+                primary geometry loads where a detail file exists; elsewhere you still see the 0.05° simplified regional
+                lines. At city zoom the basemap hides OSM roads so this overlay stays honest.
                 {study ? " Hidden while a local OpenStreetMap study is active." : ""}
               </p>
               <div className="flex items-center justify-between gap-3">

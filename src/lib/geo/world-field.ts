@@ -36,6 +36,10 @@ export function fieldGeoBounds(
   };
 }
 
+function detailLayerArea(layer: GeoWorldField): number {
+  return (layer.east - layer.west) * (layer.north - layer.south);
+}
+
 function sampleFieldPixels(
   field: WorldField,
   detailLayers: GeoWorldField[],
@@ -47,7 +51,11 @@ function sampleFieldPixels(
     const x = Math.floor((lon - layer.west) / layer.resDeg);
     const y = Math.floor((layer.north - lat) / layer.resDeg);
     if (x < 0 || x >= layer.width || y < 0 || y >= layer.height) continue;
-    return { data: layer.data, offset: (y * layer.width + x) * 4 };
+    const offset = (y * layer.width + x) * 4;
+    // Band 0 is unpainted in regional PNGs (outside the land mask). Fall through to
+    // a broader layer or the global field instead of treating it as open water.
+    if (layer.data[offset] === 0) continue;
+    return { data: layer.data, offset };
   }
   let fx = Math.floor(((lon + 180) / 360) * field.width);
   let fy = Math.floor(((90 - lat) / 180) * field.height);
@@ -86,7 +94,9 @@ export function fieldRasterForBounds(
   const rows = y1 - y0;
   const rgba = new Uint8ClampedArray(cols * rows * 4);
   const alphaScale = Math.round(opacity * 255);
-  const sortedDetails = [...detailLayers].sort((a, b) => a.resDeg - b.resDeg);
+  const sortedDetails = [...detailLayers].sort(
+    (a, b) => detailLayerArea(a) - detailLayerArea(b) || a.resDeg - b.resDeg,
+  );
 
   for (let row = 0; row < rows; row++) {
     const lat = 90 - (y0 + row + 0.5) * resDeg;
