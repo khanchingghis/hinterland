@@ -51,7 +51,7 @@ export const WORLD_ROADS_HIGHWAY_OVERVIEW_MAX_ZOOM = 3;
 /** Zoom ≤ this (and > highway max) uses the major-road overview (types 1–2). */
 export const WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM = 6;
 /** Zoom ≥ this uses per-region detail gzip when present (dense highway/primary). */
-export const WORLD_ROADS_DETAIL_MIN_ZOOM = 11;
+export const WORLD_ROADS_DETAIL_MIN_ZOOM = 9;
 
 let manifestPromise: Promise<WorldRoadsManifest> | null = null;
 const loadedRegionFiles = new Map<string, WorldRoadLine[]>();
@@ -387,7 +387,7 @@ export async function loadWorldRoadGeoJson(
 export function worldRoadGeoJsonTolerance(zoom: number): number {
   if (zoom >= WORLD_ROADS_DETAIL_MIN_ZOOM) return 0;
   if (zoom <= WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM) return 0.5;
-  return 0.15;
+  return 0.06;
 }
 
 /** Preload manifest only (tiny); road geometry loads when the overlay is enabled. */

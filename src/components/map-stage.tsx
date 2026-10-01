@@ -6,6 +6,7 @@ import type { MapMouseEvent, RasterTileSource, GeoJSONSource } from "maplibre-gl
 import type { StudyRaster } from "@/lib/geo/paint";
 import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
 import {
+  boundsOverlap,
   fetchFieldDetailRegion,
   regionsForBounds,
   WORLD_FIELD_DETAIL_MIN_ZOOM,
@@ -224,6 +225,7 @@ export function MapStage({
   const worldFieldDetailRef = useRef<Map<string, GeoWorldField>>(new Map());
   const worldFieldDetailLoadRef = useRef(0);
   const worldFieldDetailAbortRef = useRef<AbortController | null>(null);
+  const worldRoadsToleranceRef = useRef<number | null>(null);
   const worldTileMaxZoomRef = useRef(worldTileMaxZoom);
   const studyActiveRef = useRef(studyActive);
   const guideBottomInsetRef = useRef(guideBottomInset);
@@ -262,9 +264,14 @@ export function MapStage({
   const syncBasemapAndTiles = (map: maplibregl.Map) => {
     if (!map.getLayer("distance")) return;
     const worldDetail = usesWorldDetailOverlay(map);
+    const worldOverlayReady = Boolean(worldImageRef.current && worldBoundsRef.current);
     const study = Boolean(studyImageRef.current);
-    map.setLayoutProperty("distance", "visibility", worldDetail || study ? "none" : "visible");
-    const hideRoads = worldDetail && !study;
+    map.setLayoutProperty(
+      "distance",
+      "visibility",
+      (worldDetail && worldOverlayReady) || study ? "none" : "visible",
+    );
+    const hideRoads = worldDetail && worldOverlayReady && !study;
     for (const id of roadLayerIdsRef.current) {
       if (!map.getLayer(id)) continue;
       map.setLayoutProperty(id, "visibility", hideRoads ? "none" : "visible");
@@ -285,12 +292,25 @@ export function MapStage({
     }
   };
 
+  const resetWorldRoadSource = (map: maplibregl.Map) => {
+    for (const id of [WORLD_ROADS_LINE_LAYER, WORLD_ROADS_CASING_LAYER]) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+    if (map.getSource(WORLD_ROADS_SOURCE)) map.removeSource(WORLD_ROADS_SOURCE);
+    worldRoadsToleranceRef.current = null;
+  };
+
   const ensureWorldRoadLayers = (map: maplibregl.Map) => {
+    const tolerance = worldRoadGeoJsonTolerance(map.getZoom());
+    if (map.getSource(WORLD_ROADS_SOURCE) && worldRoadsToleranceRef.current !== tolerance) {
+      resetWorldRoadSource(map);
+    }
     if (!map.getSource(WORLD_ROADS_SOURCE)) {
+      worldRoadsToleranceRef.current = tolerance;
       map.addSource(WORLD_ROADS_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
-        tolerance: worldRoadGeoJsonTolerance(map.getZoom()),
+        tolerance,
       });
       map.addLayer({
         id: WORLD_ROADS_CASING_LAYER,
@@ -411,7 +431,9 @@ export function MapStage({
     if (!field || !bounds) return;
     const detailLayers =
       map.getZoom() >= WORLD_FIELD_DETAIL_MIN_ZOOM
-        ? [...worldFieldDetailRef.current.values()]
+        ? [...worldFieldDetailRef.current.values()].filter((layer) =>
+            boundsOverlap(bounds, layer.west, layer.south, layer.east, layer.north),
+          )
         : [];
     const painted = fieldRasterForBounds(
       field,
@@ -574,6 +596,13 @@ export function MapStage({
     const onMapMotion = () => {
       refreshWorldOverlay(map);
       syncBasemapAndTiles(map);
+      if (shouldDrawWorldRoads(map)) {
+        const tolerance = worldRoadGeoJsonTolerance(map.getZoom());
+        if (map.getSource(WORLD_ROADS_SOURCE) && worldRoadsToleranceRef.current !== tolerance) {
+          worldRoadsModeRef.current = "";
+          refreshWorldRoadInventory(map);
+        }
+      }
       redraw();
     };
 
