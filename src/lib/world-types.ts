@@ -18,6 +18,23 @@ export type SampleReading = {
   bandId: string | null;
 };
 
+export type FieldDetailRegionMeta = {
+  id: string;
+  file: string;
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+  cols: number;
+  rows: number;
+};
+
+export type WorldFieldDetailMeta = {
+  resolutionDeg: number;
+  minZoom: number;
+  regions: FieldDetailRegionMeta[];
+};
+
 export type WorldMeta = {
   resolutionDeg: number;
   cols: number;
@@ -25,6 +42,8 @@ export type WorldMeta = {
   /** Kilometers per step stored in the field image's green channel. */
   kmStep: number;
   tileMaxZoom: number;
+  /** Lazy-loaded regional fields for street-scale zoom (optional until rebuilt). */
+  fieldDetail?: WorldFieldDetailMeta;
   roads: {
     source: string;
     excluded: string[];

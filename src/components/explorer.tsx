@@ -38,7 +38,10 @@ import {
   type BBox,
 } from "@/lib/roads";
 import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
+import { loadFieldDetailManifest } from "@/lib/geo/world-field-detail";
 import { preloadWorldRoadsManifest } from "@/lib/world-roads";
+import { RoadsUsedSwitch } from "@/components/roads-used-switch";
+import type { WorldFieldDetailMeta } from "@/lib/world-types";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
 type LegendMode = "world" | "study";
@@ -67,6 +70,7 @@ export function Explorer() {
   const [worldField, setWorldField] = useState<WorldField | null>(null);
   const hoverRef = useRef("");
   const [meta, setMeta] = useState<WorldMeta | null>(null);
+  const [fieldDetailMeta, setFieldDetailMeta] = useState<WorldFieldDetailMeta | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [hideIce, setHideIce] = useState(false);
   const [worldRoadsLoading, setWorldRoadsLoading] = useState(false);
@@ -139,7 +143,10 @@ export function Explorer() {
         return response.json() as Promise<WorldMeta>;
       })
       .then((body) => {
-        if (!cancelled) setMeta(body);
+        if (!cancelled) {
+          setMeta(body);
+          if (body.fieldDetail) setFieldDetailMeta(body.fieldDetail);
+        }
       })
       .catch(() => {
         if (!cancelled) setMetaError("The world summary did not load.");
@@ -152,6 +159,17 @@ export function Explorer() {
   useEffect(() => {
     void preloadWorldRoadsManifest();
   }, []);
+
+  useEffect(() => {
+    if (meta?.fieldDetail) return;
+    let cancelled = false;
+    void loadFieldDetailManifest().then((manifest) => {
+      if (!cancelled && manifest) setFieldDetailMeta(manifest);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [meta?.fieldDetail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,6 +385,7 @@ export function Explorer() {
         opacity={opacity / 100}
         showWorldRoads={showWorldRoads}
         worldField={worldField}
+        worldFieldDetailMeta={fieldDetailMeta ?? meta?.fieldDetail}
         worldTileMaxZoom={worldTileMaxZoom}
         studyActive={study != null}
         guideBottomInset={guideBottomInset}
@@ -392,11 +411,15 @@ export function Explorer() {
             <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
             Guide
           </button>
-          <label className="flex cursor-pointer items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm text-[#241c14] shadow-md backdrop-blur-md">
-            <Switch
+          <label
+            className="flex cursor-pointer items-center gap-2 rounded-full border border-black/10 bg-[#f6f1e7]/95 px-3 py-2 text-sm text-[#241c14] shadow-md backdrop-blur-md"
+            aria-busy={showWorldRoads && worldRoadsLoading ? true : undefined}
+          >
+            <RoadsUsedSwitch
               checked={showWorldRoads}
               onCheckedChange={setShowWorldRoadsPersisted}
               disabled={study != null}
+              loading={showWorldRoads && worldRoadsLoading}
               aria-label="Show roads used for world distance"
             />
             <span className="font-medium">Roads used</span>
@@ -510,11 +533,12 @@ export function Explorer() {
                 <Label htmlFor="show-world-roads" className="text-sm font-medium">
                   Show roads used
                 </Label>
-                <Switch
+                <RoadsUsedSwitch
                   id="show-world-roads"
                   checked={showWorldRoads}
                   onCheckedChange={setShowWorldRoadsPersisted}
                   disabled={study != null}
+                  loading={showWorldRoads && worldRoadsLoading}
                 />
               </div>
               {showWorldRoads && worldRoadsLoading && (

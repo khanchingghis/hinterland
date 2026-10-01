@@ -5,6 +5,13 @@ import * as maplibregl from "maplibre-gl";
 import type { MapMouseEvent, RasterTileSource, GeoJSONSource } from "maplibre-gl";
 import type { StudyRaster } from "@/lib/geo/paint";
 import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
+import {
+  fetchFieldDetailRegion,
+  regionsForBounds,
+  WORLD_FIELD_DETAIL_MIN_ZOOM,
+  type GeoWorldField,
+} from "@/lib/geo/world-field-detail";
+import type { WorldFieldDetailMeta } from "@/lib/world-types";
 import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import {
@@ -50,6 +57,7 @@ type MapStageProps = {
   opacity: number;
   showWorldRoads: boolean;
   worldField: WorldField | null;
+  worldFieldDetailMeta: WorldFieldDetailMeta | null | undefined;
   worldTileMaxZoom: number;
   studyActive: boolean;
   guideBottomInset: number;
@@ -184,6 +192,7 @@ export function MapStage({
   opacity,
   showWorldRoads,
   worldField,
+  worldFieldDetailMeta,
   worldTileMaxZoom,
   studyActive,
   guideBottomInset,
@@ -211,6 +220,10 @@ export function MapStage({
   const hideIceRef = useRef(hideIce);
   const opacityRef = useRef(opacity);
   const worldFieldRef = useRef(worldField);
+  const worldFieldDetailMetaRef = useRef(worldFieldDetailMeta);
+  const worldFieldDetailRef = useRef<Map<string, GeoWorldField>>(new Map());
+  const worldFieldDetailLoadRef = useRef(0);
+  const worldFieldDetailAbortRef = useRef<AbortController | null>(null);
   const worldTileMaxZoomRef = useRef(worldTileMaxZoom);
   const studyActiveRef = useRef(studyActive);
   const guideBottomInsetRef = useRef(guideBottomInset);
@@ -224,6 +237,7 @@ export function MapStage({
     opacityRef.current = opacity;
     showWorldRoadsRef.current = showWorldRoads;
     worldFieldRef.current = worldField;
+    worldFieldDetailMetaRef.current = worldFieldDetailMeta;
     worldTileMaxZoomRef.current = worldTileMaxZoom;
     studyActiveRef.current = studyActive;
     guideBottomInsetRef.current = guideBottomInset;
@@ -351,6 +365,41 @@ export function MapStage({
       });
   };
 
+  const syncWorldFieldDetail = (map: maplibregl.Map) => {
+    const meta = worldFieldDetailMetaRef.current;
+    const bounds = asBounds(map.getBounds());
+    if (!meta || !bounds || map.getZoom() < WORLD_FIELD_DETAIL_MIN_ZOOM) {
+      worldFieldDetailAbortRef.current?.abort();
+      worldFieldDetailAbortRef.current = null;
+      return;
+    }
+    const wanted = regionsForBounds(meta, bounds);
+    const cache = worldFieldDetailRef.current;
+    for (const id of [...cache.keys()]) {
+      if (!wanted.some((region) => region.id === id)) cache.delete(id);
+    }
+    const missing = wanted.filter((region) => !cache.has(region.id));
+    if (missing.length === 0) return;
+    const token = worldFieldDetailLoadRef.current + 1;
+    worldFieldDetailLoadRef.current = token;
+    worldFieldDetailAbortRef.current?.abort();
+    const abort = new AbortController();
+    worldFieldDetailAbortRef.current = abort;
+    void Promise.all(missing.map((region) => fetchFieldDetailRegion(region, abort.signal)))
+      .then((layers) => {
+        if (worldFieldDetailLoadRef.current !== token || abort.signal.aborted) return;
+        for (const layer of layers) {
+          if (layer) cache.set(layer.regionId, layer);
+        }
+        refreshWorldOverlay(map);
+        redraw();
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error(error);
+      });
+  };
+
   const refreshWorldOverlay = (map: maplibregl.Map) => {
     if (!usesWorldDetailOverlay(map)) {
       worldImageRef.current = null;
@@ -360,7 +409,17 @@ export function MapStage({
     const field = worldFieldRef.current;
     const bounds = asBounds(map.getBounds());
     if (!field || !bounds) return;
-    const painted = fieldRasterForBounds(field, bounds, hideIceRef.current, opacityRef.current);
+    const detailLayers =
+      map.getZoom() >= WORLD_FIELD_DETAIL_MIN_ZOOM
+        ? [...worldFieldDetailRef.current.values()]
+        : [];
+    const painted = fieldRasterForBounds(
+      field,
+      bounds,
+      hideIceRef.current,
+      opacityRef.current,
+      detailLayers,
+    );
     if (!painted) {
       worldImageRef.current = null;
       worldBoundsRef.current = null;
@@ -385,6 +444,7 @@ export function MapStage({
   const refreshView = () => {
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
+    syncWorldFieldDetail(map);
     refreshWorldOverlay(map);
     syncBasemapAndTiles(map);
     refreshWorldRoadInventory(map);
@@ -477,6 +537,7 @@ export function MapStage({
     };
 
     const onMapChange = () => {
+      syncWorldFieldDetail(map);
       refreshWorldOverlay(map);
       syncBasemapAndTiles(map);
       refreshWorldRoadInventory(map);
@@ -560,8 +621,12 @@ export function MapStage({
   }, [guideBottomInset]);
 
   useEffect(() => {
+    worldFieldDetailRef.current.clear();
+    worldFieldDetailLoadRef.current += 1;
+    worldFieldDetailAbortRef.current?.abort();
+    worldFieldDetailAbortRef.current = null;
     refreshView();
-  }, [worldField, worldTileMaxZoom, studyActive, showWorldRoads]);
+  }, [worldField, worldFieldDetailMeta, worldTileMaxZoom, studyActive, showWorldRoads]);
 
   useEffect(() => {
     const map = mapRef.current;

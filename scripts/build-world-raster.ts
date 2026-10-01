@@ -28,6 +28,7 @@ import { WORLD_BANDS, bandAlpha, bandIndex } from "../src/lib/bands";
 import { assertDistanceTransform, distanceToFeatures } from "../src/lib/geo/edt";
 import { assertLocal } from "../src/lib/geo/local";
 import { assertMeasure, metersPerDegLat, metersPerDegLon, splitDateLine } from "../src/lib/geo/measure";
+import { buildRegionalFieldDetails, fieldDetailMetaForWorldMeta } from "./field-detail";
 import type { SampleReading, WorldMeta } from "../src/lib/world-types";
 
 const RES = 0.05;
@@ -588,12 +589,19 @@ async function main(): Promise<void> {
     );
   }
 
+  console.log("writing regional field detail (0.025°)");
+  const fieldDetailRegions = await buildRegionalFieldDetails(
+    loadFeatures("ne_10m_land.geojson"),
+    loadFeatures("ne_10m_glaciated_areas.geojson"),
+  );
+
   const meta: WorldMeta = {
     resolutionDeg: RES,
     cols: COLS,
     rows: ROWS,
     kmStep: KM_STEP,
     tileMaxZoom: MAX_Z,
+    fieldDetail: fieldDetailMetaForWorldMeta(fieldDetailRegions),
     roads: {
       source: GRIP_SOURCE,
       excluded: EXCLUDED,
