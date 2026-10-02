@@ -10,7 +10,7 @@ import {
   UK_PACK_BOUNDS,
   UK_PACK_MIN_ZOOM,
 } from "../src/lib/uk-pack";
-import { buildBoxDistanceFieldPng } from "./field-detail";
+import { buildBoxDistanceFieldPng, type MaskFeature } from "./field-detail";
 import {
   clipGripGzToBounds,
   exportGripBoundsSeq,
@@ -34,14 +34,9 @@ const CLIP_SIMPLIFY_DEG = 0.05;
 /** Finer simplify when rebuilding from GDB (still GRIP types 1–4). */
 const GDB_SIMPLIFY_DEG = 0.012;
 
-type Feature = {
-  properties: Record<string, unknown>;
-  geometry: { type: string; coordinates: unknown } | null;
-};
-
-function loadFeatures(file: string): Feature[] {
+function loadFeatures(file: string): MaskFeature[] {
   const json = JSON.parse(readFileSync(path.join(RAW, file), "utf8")) as {
-    features: Feature[];
+    features: MaskFeature[];
   };
   return json.features;
 }

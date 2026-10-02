@@ -20,14 +20,14 @@ const ROOT = path.resolve(__dirname, "..");
 const DETAIL_DIR = path.join(ROOT, "public/world-field-detail");
 const WORLD_ROADS_DIR = path.join(ROOT, "public/world-roads");
 
-type Geometry = {
+export type MaskGeometry = {
   type: string;
   coordinates: number[] | number[][] | number[][][] | number[][][][];
 };
 
-type Feature = {
+export type MaskFeature = {
   properties: Record<string, unknown>;
-  geometry: Geometry | null;
+  geometry: MaskGeometry | null;
 };
 
 type Edge = { y0: number; y1: number; x0: number; x1: number };
@@ -41,7 +41,7 @@ function latToY(lat: number, south: number, north: number, rows: number): number
 }
 
 function rasterizePolygonsInBox(
-  features: Feature[],
+  features: MaskFeature[],
   mask: Uint8Array,
   cols: number,
   rows: number,
@@ -206,8 +206,8 @@ export async function buildBoxDistanceFieldPng(
   resolutionDeg: number,
   roadsGzPath: string,
   outPngPath: string,
-  landFeatures: Feature[],
-  iceFeatures: Feature[],
+  landFeatures: MaskFeature[],
+  iceFeatures: MaskFeature[],
 ): Promise<{ cols: number; rows: number }> {
   const cols = Math.ceil((box.east - box.west) / resolutionDeg);
   const rows = Math.ceil((box.north - box.south) / resolutionDeg);
@@ -289,8 +289,8 @@ export async function buildBoxDistanceFieldPng(
 }
 
 export async function buildRegionalFieldDetails(
-  landFeatures: Feature[],
-  iceFeatures: Feature[],
+  landFeatures: MaskFeature[],
+  iceFeatures: MaskFeature[],
 ): Promise<FieldDetailRegionMeta[]> {
   mkdirSync(DETAIL_DIR, { recursive: true });
   const regions: FieldDetailRegionMeta[] = [];
