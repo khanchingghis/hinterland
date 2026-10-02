@@ -273,3 +273,102 @@ export function buildGripDetailOverlayAssets(): void {
 function readFileSize(file: string): number {
   return readFileSync(file).length;
 }
+
+type BBox = { west: number; south: number; east: number; north: number };
+
+function geometryIntersectsBox(
+  geometry: Geometry,
+  box: BBox,
+  pad = 0.05,
+): boolean {
+  const west = box.west - pad;
+  const east = box.east + pad;
+  const south = box.south - pad;
+  const north = box.north + pad;
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  const visit = (coord: number[]) => {
+    minLon = Math.min(minLon, coord[0]);
+    maxLon = Math.max(maxLon, coord[0]);
+    minLat = Math.min(minLat, coord[1]);
+    maxLat = Math.max(maxLat, coord[1]);
+  };
+  if (geometry.type === "LineString") {
+    for (const coord of geometry.coordinates as number[][]) visit(coord);
+  } else if (geometry.type === "MultiLineString") {
+    for (const part of geometry.coordinates as number[][][]) {
+      for (const coord of part) visit(coord);
+    }
+  } else {
+    return false;
+  }
+  return maxLon >= west && minLon <= east && maxLat >= south && minLat <= north;
+}
+
+/** Clip an existing regional GRIP gzip export to a lon/lat box (same simplify as source). */
+export async function clipGripGzToBounds(
+  inGzPath: string,
+  outGzPath: string,
+  box: BBox,
+): Promise<number> {
+  const seq = outGzPath.replace(/\.gz$/, "");
+  const out = createWriteStream(seq, { encoding: "utf8" });
+  let kept = 0;
+  const lines = createInterface({
+    input: createReadStream(inGzPath).pipe(createGunzip()),
+    crlfDelay: Infinity,
+  });
+  for await (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const feature = JSON.parse(trimmed) as GripFeature;
+    const geometry = feature.geometry;
+    if (!geometry) continue;
+    const rtp = Number(feature.properties.GP_RTP ?? 99);
+    if (rtp > GRIP_MAX_ROAD_TYPE) continue;
+    if (!geometryIntersectsBox(geometry, box)) continue;
+    out.write(`${trimmed}\n`);
+    kept += 1;
+  }
+  out.end();
+  await finished(out);
+  gzipFile(seq, outGzPath);
+  unlinkSync(seq);
+  return kept;
+}
+
+/** Export GRIP types 1–4 inside a bbox when the regional GDB is available. */
+export function exportGripBoundsSeq(
+  regionId: string,
+  outPath: string,
+  box: BBox,
+  simplifyDeg: number,
+  maxRoadType = GRIP_MAX_ROAD_TYPE,
+): void {
+  const gdb = gripGdbPath(regionId);
+  const layer = gripLayerName(regionId);
+  const sql = `SELECT ${gripTypeSqlCase()} AS type, * FROM ${layer} WHERE GP_RTP <= ${maxRoadType}`;
+  const args = [
+    "-f",
+    "GeoJSONSeq",
+    outPath,
+    gdb,
+    "-dialect",
+    "SQLite",
+    "-sql",
+    sql,
+    "-spat",
+    String(box.west),
+    String(box.south),
+    String(box.east),
+    String(box.north),
+    "-lco",
+    "COORDINATE_PRECISION=5",
+  ];
+  if (simplifyDeg > 0) {
+    args.push("-simplify", String(simplifyDeg));
+  }
+  execFileSync("ogr2ogr", args, { stdio: "inherit" });
+}

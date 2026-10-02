@@ -37,8 +37,14 @@ import {
   spanLimitMessage,
   type BBox,
 } from "@/lib/roads";
-import { sampleWorldField, type WorldField } from "@/lib/geo/world-field";
+import {
+  ensureUkDistanceField,
+  sampleCompositeWorldField,
+  type UkDistanceField,
+} from "@/lib/geo/uk-field";
+import type { WorldField } from "@/lib/geo/world-field";
 import { preloadWorldRoadsManifest } from "@/lib/world-roads";
+import { pointInPack, viewportQualifiesForUkPack } from "@/lib/uk-pack";
 import { RoadsUsedSwitch } from "@/components/roads-used-switch";
 import type { AreaShare, WorldMeta } from "@/lib/world-types";
 
@@ -65,6 +71,7 @@ export function Explorer() {
   const gridRef = useRef<LocalGrid | null>(null);
   const roadsRef = useRef<RoadLine[]>([]);
   const fieldRef = useRef<WorldField | null>(null);
+  const ukFieldRef = useRef<UkDistanceField | null>(null);
   const [worldField, setWorldField] = useState<WorldField | null>(null);
   const hoverRef = useRef("");
   const [meta, setMeta] = useState<WorldMeta | null>(null);
@@ -86,6 +93,7 @@ export function Explorer() {
   const [isolate, setIsolate] = useState<string | null>(null);
   const [legend, setLegend] = useState<LegendMode>("world");
   const [view, setView] = useState<BBox | null>(null);
+  const [mapZoom, setMapZoom] = useState(1.45);
   const [study, setStudy] = useState<StudyState | null>(null);
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const [statusText, setStatusText] = useState("");
@@ -152,7 +160,17 @@ export function Explorer() {
 
   useEffect(() => {
     void preloadWorldRoadsManifest();
+    void ensureUkDistanceField().then((field) => {
+      ukFieldRef.current = field;
+    });
   }, []);
+
+  useEffect(() => {
+    if (!view || !viewportQualifiesForUkPack(view, mapZoom)) return;
+    void ensureUkDistanceField().then((field) => {
+      ukFieldRef.current = field;
+    });
+  }, [view, mapZoom]);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,7 +249,16 @@ export function Explorer() {
     }
     const field = fieldRef.current;
     if (!field) return null;
-    const sample = sampleWorldField(field, lngLat.lng, lngLat.lat, meta?.kmStep ?? 20);
+    const ukKmStep = pointInPack(lngLat.lng, lngLat.lat) ? 1 : meta?.kmStep ?? 20;
+    const sample = sampleCompositeWorldField(
+      field,
+      ukFieldRef.current,
+      lngLat.lng,
+      lngLat.lat,
+      mapZoom,
+      meta?.kmStep ?? 20,
+      ukKmStep,
+    );
     if (sample.kind === "water") return { title: "Open water", body: "Ocean is left unpainted" };
     if (hideIce && sample.ice) return { title: "Ice sheet", body: "Hidden on this layer" };
     const band = WORLD_BANDS[sample.band];
@@ -371,7 +398,10 @@ export function Explorer() {
         worldTileMaxZoom={worldTileMaxZoom}
         studyActive={study != null}
         guideBottomInset={guideBottomInset}
-        onView={setView}
+        onView={(bounds, zoom) => {
+          setView(bounds);
+          setMapZoom(zoom);
+        }}
         onHover={handleHover}
         onClick={handleClick}
         onWorldRoadsLoadingChange={setWorldRoadsLoading}

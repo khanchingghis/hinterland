@@ -1,0 +1,22 @@
+{
+  "source": "GRIP4 (Global Roads Inventory Project, Meijer et al. 2018, CC0)",
+  "roadTypes": "Highway through tertiary (GRIP types 1–4)",
+  "resolutionDeg": 0.01,
+  "minZoom": 7,
+  "kmStep": 1,
+  "bounds": {
+    "west": -13,
+    "south": 48,
+    "east": 5,
+    "north": 62
+  },
+  "activation": {
+    "west": -9.5,
+    "south": 49.5,
+    "east": 3,
+    "north": 60.8
+  },
+  "roadsFile": "uk-roads.ndjson.gz",
+  "fieldFile": "uk-field.png",
+  "roadsSimplifyDeg": 0.05
+}

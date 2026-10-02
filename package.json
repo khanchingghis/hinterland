@@ -8,7 +8,8 @@
     "start": "next start --hostname 0.0.0.0 --port 4317",
     "lint": "eslint",
     "world": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-world-raster.ts",
-    "field-detail": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-field-detail-only.ts"
+    "field-detail": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-field-detail-only.ts",
+    "uk-pack": "node --max-old-space-size=8192 ./node_modules/tsx/dist/cli.mjs scripts/build-uk-pack.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
