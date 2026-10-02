@@ -4,7 +4,9 @@ import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { MapMouseEvent, RasterTileSource, GeoJSONSource } from "maplibre-gl";
 import type { StudyRaster } from "@/lib/geo/paint";
-import { fieldRasterForBounds, type WorldField } from "@/lib/geo/world-field";
+import { compositeFieldRasterForBounds, ensureUkDistanceField, type UkDistanceField } from "@/lib/geo/uk-field";
+import type { WorldField } from "@/lib/geo/world-field";
+import { viewportQualifiesForUkPack } from "@/lib/uk-pack";
 import { isBasemapRoadLayer } from "@/lib/map-basemap";
 import type { BBox } from "@/lib/roads";
 import {
@@ -52,7 +54,7 @@ type MapStageProps = {
   worldTileMaxZoom: number;
   studyActive: boolean;
   guideBottomInset: number;
-  onView: (bounds: BBox) => void;
+  onView: (bounds: BBox, zoom: number) => void;
   onHover: (lngLat: { lng: number; lat: number }) => void;
   onClick: (lngLat: { lng: number; lat: number }) => void;
   onWorldRoadsLoadingChange?: (loading: boolean) => void;
@@ -200,6 +202,9 @@ export function MapStage({
   const studyBoundsRef = useRef<BBox | null>(null);
   const worldImageRef = useRef<HTMLCanvasElement | null>(null);
   const worldBoundsRef = useRef<BBox | null>(null);
+  const ukFieldRef = useRef<UkDistanceField | null>(null);
+  const ukFieldLoadRef = useRef<Promise<void> | null>(null);
+  const ukOverlayLoadRef = useRef(0);
   const roadLayerIdsRef = useRef<string[]>([]);
   const worldRoadsLoadRef = useRef(0);
   const worldRoadsAbortRef = useRef<AbortController | null>(null);
@@ -285,7 +290,10 @@ export function MapStage({
   };
 
   const ensureWorldRoadLayers = (map: maplibregl.Map) => {
-    const tolerance = worldRoadGeoJsonTolerance(map.getZoom());
+    const bounds = asBounds(map.getBounds());
+    const zoom = map.getZoom();
+    const ukActive = bounds ? viewportQualifiesForUkPack(bounds, zoom) : false;
+    const tolerance = worldRoadGeoJsonTolerance(zoom, ukActive);
     if (map.getSource(WORLD_ROADS_SOURCE) && worldRoadsToleranceRef.current !== tolerance) {
       resetWorldRoadSource(map);
     }
@@ -328,8 +336,19 @@ export function MapStage({
     const zoom = map.getZoom();
     if (zoom <= 3) return "overview-highway";
     if (zoom <= 6) return "overview-major";
+    if (viewportQualifiesForUkPack(bounds, zoom)) return "uk-pack";
     const q = (value: number) => (Math.round(value * 4) / 4).toFixed(2);
     return `regional:${q(bounds.west)},${q(bounds.south)},${q(bounds.east)},${q(bounds.north)}`;
+  };
+
+  const ensureUkFieldLoaded = (): Promise<void> => {
+    if (ukFieldRef.current) return Promise.resolve();
+    if (!ukFieldLoadRef.current) {
+      ukFieldLoadRef.current = ensureUkDistanceField().then((field) => {
+        ukFieldRef.current = field;
+      });
+    }
+    return ukFieldLoadRef.current;
   };
 
   const refreshWorldRoadInventory = (map: maplibregl.Map) => {
@@ -368,6 +387,18 @@ export function MapStage({
       });
   };
 
+  const applyWorldOverlayPaint = (
+    painted: { raster: StudyRaster; bounds: BBox } | null,
+  ) => {
+    if (!painted) {
+      worldImageRef.current = null;
+      worldBoundsRef.current = null;
+      return;
+    }
+    worldBoundsRef.current = painted.bounds;
+    worldImageRef.current = rasterImage(painted.raster);
+  };
+
   const refreshWorldOverlay = (map: maplibregl.Map) => {
     if (!usesWorldDetailOverlay(map)) {
       worldImageRef.current = null;
@@ -377,14 +408,33 @@ export function MapStage({
     const field = worldFieldRef.current;
     const bounds = asBounds(map.getBounds());
     if (!field || !bounds) return;
-    const painted = fieldRasterForBounds(field, bounds, hideIceRef.current, opacityRef.current);
-    if (!painted) {
-      worldImageRef.current = null;
-      worldBoundsRef.current = null;
-      return;
-    }
-    worldBoundsRef.current = painted.bounds;
-    worldImageRef.current = rasterImage(painted.raster);
+    const zoom = map.getZoom();
+    const needsUk = viewportQualifiesForUkPack(bounds, zoom);
+    const painted = compositeFieldRasterForBounds(
+      field,
+      ukFieldRef.current,
+      bounds,
+      zoom,
+      hideIceRef.current,
+      opacityRef.current,
+    );
+    applyWorldOverlayPaint(painted);
+    if (!needsUk || ukFieldRef.current) return;
+    const token = ukOverlayLoadRef.current + 1;
+    ukOverlayLoadRef.current = token;
+    void ensureUkFieldLoaded().then(() => {
+      if (ukOverlayLoadRef.current !== token || !usesWorldDetailOverlay(map)) return;
+      const next = compositeFieldRasterForBounds(
+        field,
+        ukFieldRef.current,
+        bounds,
+        zoom,
+        hideIceRef.current,
+        opacityRef.current,
+      );
+      applyWorldOverlayPaint(next);
+      redraw();
+    });
   };
 
   const redraw = () => {
@@ -490,7 +540,7 @@ export function MapStage({
 
     const publishView = () => {
       const bounds = asBounds(map.getBounds());
-      if (bounds) onViewRef.current(bounds);
+      if (bounds) onViewRef.current(bounds, map.getZoom());
     };
 
     const onMapChange = () => {
@@ -531,7 +581,9 @@ export function MapStage({
       refreshWorldOverlay(map);
       syncBasemapAndTiles(map);
       if (shouldDrawWorldRoads(map)) {
-        const tolerance = worldRoadGeoJsonTolerance(map.getZoom());
+        const motionBounds = asBounds(map.getBounds());
+        const ukActive = motionBounds ? viewportQualifiesForUkPack(motionBounds, map.getZoom()) : false;
+        const tolerance = worldRoadGeoJsonTolerance(map.getZoom(), ukActive);
         if (map.getSource(WORLD_ROADS_SOURCE) && worldRoadsToleranceRef.current !== tolerance) {
           worldRoadsModeRef.current = "";
           refreshWorldRoadInventory(map);

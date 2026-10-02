@@ -129,18 +129,19 @@ function computeRegionalDistances(
   rows: number,
   south: number,
   north: number,
+  resolutionDeg: number,
 ): Float32Array {
   const out = new Float32Array(cols * rows);
   out.fill(Number.POSITIVE_INFINITY);
   const stripDeg = 10;
   const padDeg = 24;
-  const padRows = Math.ceil(padDeg / FIELD_DETAIL_RES);
-  const padCols = Math.ceil(padDeg / FIELD_DETAIL_RES);
+  const padRows = Math.ceil(padDeg / resolutionDeg);
+  const padCols = Math.ceil(padDeg / resolutionDeg);
 
   for (let lat0 = south; lat0 < north; lat0 += stripDeg) {
     const lat1 = Math.min(north, lat0 + stripDeg);
-    const coreR0 = Math.max(0, Math.min(rows, Math.round((90 - lat1) / FIELD_DETAIL_RES)));
-    const coreR1 = Math.max(coreR0, Math.min(rows, Math.round((90 - lat0) / FIELD_DETAIL_RES)));
+    const coreR0 = Math.max(0, Math.min(rows, Math.round((north - lat1) / resolutionDeg)));
+    const coreR1 = Math.max(coreR0, Math.min(rows, Math.round((north - lat0) / resolutionDeg)));
     const r0 = Math.max(0, coreR0 - padRows);
     const r1 = Math.min(rows, coreR1 + padRows);
     const height = r1 - r0;
@@ -156,8 +157,8 @@ function computeRegionalDistances(
     }
 
     const midLat = Math.max(-84, Math.min(84, (lat0 + lat1) / 2));
-    const sy = metersPerDegLat(midLat) * FIELD_DETAIL_RES;
-    const sx = Math.max(50, metersPerDegLon(midLat) * FIELD_DETAIL_RES);
+    const sy = metersPerDegLat(midLat) * resolutionDeg;
+    const sx = Math.max(50, metersPerDegLon(midLat) * resolutionDeg);
     const dist = distanceToFeatures(sub, width, height, sx, sy);
 
     for (let r = coreR0; r < coreR1; r++) {
@@ -192,6 +193,100 @@ export type FieldDetailRegionMeta = {
   cols: number;
   rows: number;
 };
+
+export type BoxBounds = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};
+
+export async function buildBoxDistanceFieldPng(
+  box: BoxBounds,
+  resolutionDeg: number,
+  roadsGzPath: string,
+  outPngPath: string,
+  landFeatures: Feature[],
+  iceFeatures: Feature[],
+): Promise<{ cols: number; rows: number }> {
+  const cols = Math.ceil((box.east - box.west) / resolutionDeg);
+  const rows = Math.ceil((box.north - box.south) / resolutionDeg);
+  console.log(`  box field ${cols}×${rows} @ ${resolutionDeg}°`);
+
+  const land = new Uint8Array(cols * rows);
+  const ice = new Uint8Array(cols * rows);
+  rasterizePolygonsInBox(
+    landFeatures,
+    land,
+    cols,
+    rows,
+    box.west,
+    box.east,
+    box.south,
+    box.north,
+    false,
+  );
+  rasterizePolygonsInBox(
+    iceFeatures,
+    ice,
+    cols,
+    rows,
+    box.west,
+    box.east,
+    box.south,
+    box.north,
+    true,
+  );
+
+  const seeds = new Uint8Array(cols * rows);
+  const lonToCol = (lon: number) =>
+    Math.min(cols - 1, Math.max(0, Math.floor((lon - box.west) / resolutionDeg)));
+  const latToRow = (lat: number) =>
+    Math.min(rows - 1, Math.max(0, Math.floor((box.north - lat) / resolutionDeg)));
+
+  const draw = (a: [number, number], b: [number, number]) => {
+    const x0 = lonToCol(a[0]);
+    const y0 = latToRow(a[1]);
+    const x1 = lonToCol(b[0]);
+    const y1 = latToRow(b[1]);
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
+    for (let i = 0; i <= steps; i++) {
+      const t = steps === 0 ? 0 : i / steps;
+      const c = Math.round(x0 + dx * t);
+      const r = Math.round(y0 + dy * t);
+      if (c >= 0 && c < cols && r >= 0 && r < rows) seeds[r * cols + c] = 1;
+    }
+  };
+
+  const drawSegment = (a: [number, number], b: [number, number]) => {
+    for (const [start, end] of splitDateLine(a, b)) draw(start, end);
+  };
+
+  await rasterizeGripGzFile(roadsGzPath, drawSegment, () => {});
+
+  const dist = computeRegionalDistances(seeds, cols, rows, box.south, box.north, resolutionDeg);
+  const png = new PNG({ width: cols, height: rows });
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const i = y * cols + x;
+      const offset = i * 4;
+      png.data[offset + 3] = 255;
+      if (!land[i]) continue;
+      const meters = Number.isFinite(dist[i]) ? dist[i] : 6_000_000;
+      const km = meters / 1000;
+      png.data[offset] = bandIndex(meters, WORLD_BANDS) + 1;
+      png.data[offset + 1] = Math.min(255, Math.round(km / KM_STEP) + 1);
+      png.data[offset + 2] = ice[i] ? 255 : 0;
+    }
+  }
+
+  writeFileSync(outPngPath, PNG.sync.write(png, { deflateLevel: 6 }));
+  const kb = Math.round(readFileSync(outPngPath).length / 1024);
+  console.log(`    ${path.basename(outPngPath)} ${kb} KB`);
+  return { cols, rows };
+}
 
 export async function buildRegionalFieldDetails(
   landFeatures: Feature[],
@@ -243,7 +338,7 @@ export async function buildRegionalFieldDetails(
 
     await rasterizeGripGzFile(gz, drawSegment, () => {});
 
-    const dist = computeRegionalDistances(seeds, cols, rows, box.south, box.north);
+    const dist = computeRegionalDistances(seeds, cols, rows, box.south, box.north, FIELD_DETAIL_RES);
     const png = new PNG({ width: cols, height: rows });
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {

@@ -1,4 +1,5 @@
 import { publicPath } from "@/lib/base-path";
+import { loadUkPackManifest, viewportQualifiesForUkPack } from "@/lib/uk-pack";
 import type { BBox } from "@/lib/roads";
 import type { ExpressionSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString, MultiLineString, Position } from "geojson";
@@ -52,7 +53,10 @@ export const WORLD_ROADS_HIGHWAY_OVERVIEW_MAX_ZOOM = 3;
 export const WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM = 6;
 let manifestPromise: Promise<WorldRoadsManifest> | null = null;
 const loadedRegionFiles = new Map<string, WorldRoadLine[]>();
+const loadedUkRoads = new Map<string, WorldRoadLine[]>();
 const overviewCache = new Map<string, FeatureCollection>();
+
+const UK_ROADS_FILE = "uk-roads.ndjson.gz";
 
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => {
@@ -336,6 +340,25 @@ export async function loadWorldRoadGeoJson(
     return loadOverviewFile("major", overviews.major.file, overviews.major.maxRoadType, signal);
   }
 
+  const ukManifest = await loadUkPackManifest();
+  if (ukManifest && viewportQualifiesForUkPack(bounds, zoom)) {
+    const cacheKey = UK_ROADS_FILE;
+    if (!loadedUkRoads.has(cacheKey)) {
+      const lines: WorldRoadLine[] = [];
+      await streamNdjsonGzip(publicPath(`/uk-pack/${UK_ROADS_FILE}`), signal, (row) => {
+        const rtp = row.properties?.GP_RTP ?? 99;
+        if (rtp > 4) return;
+        lines.push(...parseFeatureLines(row));
+      });
+      loadedUkRoads.set(cacheKey, lines);
+    }
+    const viewPad = 0.25;
+    const lines = (loadedUkRoads.get(cacheKey) ?? []).filter((line) =>
+      lineIntersectsBounds(line, bounds, viewPad),
+    );
+    return linesToFeatureCollection(lines);
+  }
+
   const pad = 0.5;
   const needed = manifest.regions.filter((region) => regionIntersectsBounds(region, bounds, pad));
   const lines: WorldRoadLine[] = [];
@@ -352,8 +375,9 @@ export async function loadWorldRoadGeoJson(
 }
 
 /** Douglas-Peucker tolerance (degrees) for the MapLibre GeoJSON source. */
-export function worldRoadGeoJsonTolerance(zoom: number): number {
+export function worldRoadGeoJsonTolerance(zoom: number, ukPackActive = false): number {
   if (zoom <= WORLD_ROADS_MAJOR_OVERVIEW_MAX_ZOOM) return 0.5;
+  if (ukPackActive) return 0.015;
   return 0.06;
 }
 
