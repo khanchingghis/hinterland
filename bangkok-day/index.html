@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bangkok Day Quest · Sun 18 Oct</title>
+<meta property="og:title" content="Bangkok Day Quest">
+<meta property="og:description" content="Ping pong, vegetables, sand, Left 4 Dead and an escape room. Five stops, one day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0b1f;--ink:#f6f1ff;--muted:#a79fc9;--card:rgba(255,255,255,.06);--line:rgba(255,255,255,.14)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Space Grotesk",system-ui,sans-serif;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:-50%;z-index:-2;background:conic-gradient(from 0deg,#ff2e88,#ffb800,#00e0a4,#00a3ff,#9b5cff,#ff2e88);filter:blur(120px);opacity:.25;animation:spin 30s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:50}
+header{min-height:92vh;display:grid;place-items:center;text-align:center;padding:2rem;position:relative}
+h1{font-family:Bungee,sans-serif;font-size:clamp(2.6rem,9vw,7rem);line-height:.95;margin:0;background:linear-gradient(90deg,#ff2e88,#ffb800,#00e0a4,#00a3ff,#ff2e88);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:slide 6s linear infinite}
+@keyframes slide{to{background-position:300% 0}}
+.sub{color:var(--muted);font-size:1.15rem;margin-top:1rem}
+.typed::after{content:"▍";animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.scroll{position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);color:var(--muted);animation:bob 1.6s ease-in-out infinite;text-decoration:none}
+@keyframes bob{50%{transform:translate(-50%,8px)}}
+.progress{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);background:rgba(13,11,31,.7);border-bottom:1px solid var(--line);padding:.7rem 1.2rem;display:flex;gap:1rem;align-items:center}
+.bar{flex:1;height:10px;border-radius:99px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#00e0a4,#ffb800,#ff2e88);transition:width .6s cubic-bezier(.2,1.4,.4,1)}
+main{max-width:860px;margin:0 auto;padding:3rem 1.2rem 6rem;position:relative}
+main::before{content:"";position:absolute;left:2.6rem;top:3rem;bottom:6rem;width:3px;background:linear-gradient(var(--line),var(--line)) ;border-radius:3px}
+.stop{position:relative;margin:0 0 3rem 4.6rem;padding:1.6rem 1.6rem 1.4rem;border:1px solid var(--line);border-radius:22px;background:var(--card);backdrop-filter:blur(8px);opacity:0;transform:translateY(40px) rotate(-1deg);transition:opacity .7s,transform .7s cubic-bezier(.2,1.2,.4,1);transform-style:preserve-3d;overflow:hidden}
+.stop.in{opacity:1;transform:none}
+.stop .num{position:absolute;left:-4.6rem;top:1.4rem;width:3.2rem;height:3.2rem;border-radius:50%;display:grid;place-items:center;font-family:Bungee;background:var(--bg);border:3px solid var(--c);color:var(--c);box-shadow:0 0 24px var(--c)}
+.stop{overflow:visible}
+.emoji{font-size:2.6rem;display:inline-block}
+h2{font-family:Bungee;font-size:clamp(1.5rem,4vw,2.2rem);margin:.3rem 0 .4rem;color:var(--c)}
+.stop p{color:var(--muted);margin:.2rem 0 1rem;line-height:1.5}
+.done{appearance:none;cursor:pointer;border:2px solid var(--c);color:var(--c);background:transparent;padding:.55rem 1.1rem;border-radius:99px;font:600 .95rem "Space Grotesk";transition:.2s}
+.done:hover{background:var(--c);color:var(--bg);transform:scale(1.05)}
+.stop.complete .done{background:var(--c);color:var(--bg)}
+.stop.complete h2{text-decoration:line-through;text-decoration-thickness:3px}
+.stage{height:120px;border-radius:14px;margin:.4rem 0 1rem;position:relative;overflow:hidden;background:rgba(0,0,0,.25)}
+/* ping pong */
+.pp .stage{background:#0b5d3b}
+.pp .stage::before{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:3px dashed rgba(255,255,255,.6)}
+.paddle{position:absolute;width:10px;height:40px;border-radius:6px;background:#ff2e88;top:40px}
+.paddle.l{left:12px;animation:padL 1.4s ease-in-out infinite}.paddle.r{right:12px;background:#ffb800;animation:padR 1.4s ease-in-out infinite}
+@keyframes padL{0%,100%{top:15px}50%{top:65px}}@keyframes padR{0%,100%{top:65px}50%{top:15px}}
+.ball{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 12px #fff;animation:bx 1.4s linear infinite alternate,by .7s ease-in-out infinite alternate}
+@keyframes bx{from{left:24px}to{left:calc(100% - 38px)}}@keyframes by{from{top:22px}to{top:84px}}
+/* veg */
+.veg .stage span{position:absolute;top:-40px;font-size:1.8rem;animation:fall linear infinite}
+@keyframes fall{to{transform:translateY(190px) rotate(360deg)}}
+/* sand */
+.sand canvas{width:100%;height:100%;display:block;cursor:crosshair}
+.hint{position:absolute;right:10px;bottom:8px;font-size:.75rem;color:rgba(255,255,255,.6);pointer-events:none}
+/* l4d */
+.l4d{--c:#8dff3a}
+.l4d.glitch h2{animation:glitch .25s steps(2) 3}
+@keyframes glitch{0%{text-shadow:3px 0 #ff2e88,-3px 0 #00a3ff;transform:translate(2px)}50%{text-shadow:-3px 0 #ff2e88,3px 0 #00a3ff;transform:translate(-2px)}}
+.l4d .stage{background:radial-gradient(circle at var(--mx,50%) var(--my,50%),transparent 0 50px,rgba(0,0,0,.94) 80px),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Ctext x='10' y='50' font-size='34'%3E%F0%9F%A7%9F%3C/text%3E%3Ctext x='65' y='105' font-size='30'%3E%F0%9F%A7%9F%E2%80%8D%E2%99%80%EF%B8%8F%3C/text%3E%3C/svg%3E"),#2a1010;cursor:none}
+/* escape */
+.lock{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.dial{width:3rem;height:3.4rem;border-radius:10px;border:2px solid var(--c);background:rgba(0,0,0,.3);color:var(--ink);font:1.6rem Bungee;display:grid;place-items:center;cursor:pointer;user-select:none;transition:transform .15s}
+.dial:active{transform:scale(.92)}
+.lock.shake{animation:shake .4s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.secret{max-height:0;overflow:hidden;transition:max-height .6s;color:var(--c)!important}
+.esc.open .secret{max-height:80px}
+footer{text-align:center;color:var(--muted);padding:2rem 1rem 4rem}
+.finale{display:none;font-family:Bungee;font-size:2rem;color:#ffb800;text-align:center;margin-top:1rem}
+.finale.show{display:block;animation:pop .6s cubic-bezier(.2,1.6,.4,1)}
+@keyframes pop{from{transform:scale(0)}}
+.tilt{will-change:transform}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.stop{opacity:1;transform:none}}
+@media (max-width:560px){.stop{margin-left:3.4rem}.stop .num{left:-3.6rem;width:2.6rem;height:2.6rem}main::before{left:2.1rem}}
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+<header>
+  <div>
+    <div class="sub">Sunday 18 October 2026 · Bangkok</div>
+    <h1>BANGKOK<br>DAY QUEST</h1>
+    <p class="sub"><span class="typed" id="typed"></span></p>
+  </div>
+  <a class="scroll" href="#quest">scroll for the plan ↓</a>
+</header>
+
+<div class="progress"><b id="count">0 / 5</b><div class="bar"><i id="fill"></i></div><span>🏆</span></div>
+
+<main id="quest">
+  <section class="stop pp tilt" style="--c:#ff2e88">
+    <div class="num">1</div>
+    <span class="emoji">🏓</span>
+    <h2>Ping Pong</h2>
+    <p>Warm-up round. Loser buys the first drinks.</p>
+    <div class="stage"><div class="paddle l"></div><div class="paddle r"></div><div class="ball"></div></div>
+    <button class="done">Mark done</button>
+  </section>
+
+  <section class="stop veg tilt" style="--c:#00e0a4">
+    <div class="num">2</div>
+    <span class="emoji">🥦</span>
+    <h2>Vegetables</h2>
+    <p>Refuel with something green before the chaos. Tap the box to make it rain veg.</p>
+    <div class="stage" id="vegStage"></div>
+    <button class="done">Mark done</button>
+  </section>
+
+  <section class="stop sand tilt" style="--c:#ffb800">
+    <div class="num">3</div>
+    <span class="emoji">🏖️</span>
+    <h2>Sand</h2>
+    <p>Sand time. Drag across the box to pour your own.</p>
+    <div class="stage"><canvas id="sand"></canvas><span class="hint">drag to pour</span></div>
+    <button class="done">Mark done</button>
+  </section>
+
+  <section class="stop l4d tilt">
+    <div class="num">4</div>
+    <span class="emoji">🧟</span>
+    <h2>Left 4 Dead</h2>
+    <p>Grab a teammate, find the safe room, don't startle the Witch. Shine your torch around below.</p>
+    <div class="stage" id="dark"></div>
+    <button class="done">Mark done</button>
+  </section>
+
+  <section class="stop esc tilt" style="--c:#00a3ff">
+    <div class="num">5</div>
+    <span class="emoji">🔐</span>
+    <h2>Escape Room</h2>
+    <p>Final boss. Practise first: crack the lock (hint: today's date, day and month).</p>
+    <div class="lock" id="lock">
+      <div class="dial">0</div><div class="dial">0</div><div class="dial">0</div><div class="dial">0</div>
+    </div>
+    <p class="secret">🔓 Unlocked. You're ready for the real one.</p>
+    <button class="done">Mark done</button>
+  </section>
+
+  <div class="finale" id="finale">QUEST COMPLETE 🎉</div>
+</main>
+<footer>Made for a good day out in Bangkok. Hit the buttons as you go.</footer>
+
+<script>
+// typing effect
+const lines=["5 stops.","1 city.","0 excuses.","Ping pong → veg → sand → zombies → escape."];
+const t=document.getElementById('typed');let li=0,ci=0,del=false;
+(function type(){const s=lines[li];t.textContent=s.slice(0,ci);
+ if(!del&&ci<s.length)ci++;else if(!del){del=true;return setTimeout(type,1400)}else if(ci>0)ci--;else{del=false;li=(li+1)%lines.length}
+ setTimeout(type,del?35:70)})();
+
+// reveal on scroll
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');if(e.target.classList.contains('l4d')){e.target.classList.add('glitch')}}}),{threshold:.2});
+document.querySelectorAll('.stop').forEach(s=>io.observe(s));
+
+// 3D tilt
+document.querySelectorAll('.tilt').forEach(c=>{
+ c.addEventListener('pointermove',e=>{if(e.pointerType!=='mouse')return;const r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;c.style.transform=`perspective(900px) rotateY(${x*6}deg) rotateX(${-y*6}deg)`});
+ c.addEventListener('pointerleave',()=>c.style.transform='')});
+
+// confetti
+const fx=document.getElementById('fx'),g=fx.getContext('2d');let parts=[];
+function size(){fx.width=innerWidth;fx.height=innerHeight}size();addEventListener('resize',size);
+function boom(x,y,n=90){const cs=['#ff2e88','#ffb800','#00e0a4','#00a3ff','#9b5cff','#fff'];
+ for(let i=0;i<n;i++)parts.push({x,y,vx:(Math.random()-.5)*14,vy:Math.random()*-14-3,r:Math.random()*6+3,c:cs[i%cs.length],a:Math.random()*6,life:120})}
+(function loop(){g.clearRect(0,0,fx.width,fx.height);parts=parts.filter(p=>p.life-->0);
+ for(const p of parts){p.vy+=.35;p.x+=p.vx;p.y+=p.vy;p.a+=.2;g.save();g.translate(p.x,p.y);g.rotate(p.a);g.fillStyle=p.c;g.globalAlpha=Math.min(1,p.life/40);g.fillRect(-p.r/2,-p.r/2,p.r,p.r*1.6);g.restore()}
+ requestAnimationFrame(loop)})();
+
+// progress with localStorage
+const stops=[...document.querySelectorAll('.stop')],KEY='bkk-quest-1018';
+let state=JSON.parse(localStorage.getItem(KEY)||'[]');
+function render(){stops.forEach((s,i)=>{s.classList.toggle('complete',!!state[i]);s.querySelector('.done').textContent=state[i]?'Done ✓':'Mark done'});
+ const n=state.filter(Boolean).length;document.getElementById('count').textContent=`${n} / 5`;document.getElementById('fill').style.width=n*20+'%';
+ document.getElementById('finale').classList.toggle('show',n===5)}
+stops.forEach((s,i)=>s.querySelector('.done').addEventListener('click',e=>{state[i]=!state[i];localStorage.setItem(KEY,JSON.stringify(state));
+ if(state[i]){boom(e.clientX,e.clientY);if(state.filter(Boolean).length===5)setTimeout(()=>{for(let k=0;k<6;k++)setTimeout(()=>boom(Math.random()*innerWidth,innerHeight*.4,120),k*180)},300)}render()}));
+render();
+
+// veg rain
+const vs=document.getElementById('vegStage'),veg=['🥦','🥕','🌽','🥒','🍆','🫑','🥬','🍅'];
+function rain(n){for(let i=0;i<n;i++){const s=document.createElement('span');s.textContent=veg[Math.random()*veg.length|0];s.style.left=Math.random()*95+'%';s.style.animationDuration=(1.5+Math.random()*2)+'s';s.style.animationDelay=Math.random()*1.5+'s';vs.appendChild(s);setTimeout(()=>s.remove(),5500)}}
+rain(10);setInterval(()=>rain(3),1200);vs.addEventListener('click',()=>rain(25));
+
+// falling sand sim
+const sc=document.getElementById('sand'),sx=sc.getContext('2d');const W=160,H=60;sc.width=W;sc.height=H;sc.style.imageRendering='pixelated';
+let grid=new Uint8Array(W*H),hue=40,down=false;const cols={};
+function pour(e){const r=sc.getBoundingClientRect(),p=e.touches?e.touches[0]:e,x=((p.clientX-r.left)/r.width*W)|0,y=((p.clientY-r.top)/r.height*H)|0;
+ for(let i=0;i<6;i++){const xx=x+((Math.random()*5-2)|0),yy=y+((Math.random()*3-1)|0);if(xx>=0&&xx<W&&yy>=0&&yy<H&&!grid[yy*W+xx])grid[yy*W+xx]=1+((hue+Math.random()*20)%60|0)}hue=(hue+.3)%60}
+sc.addEventListener('pointerdown',e=>{down=true;pour(e)});addEventListener('pointerup',()=>down=false);sc.addEventListener('pointermove',e=>{if(down)pour(e)});
+let auto=0;
+(function step(){if(!down&&auto++%4===0){const x=(W/2+Math.sin(Date.now()/700)*W/3)|0;if(!grid[x])grid[x]=1+((Math.random()*20+30)|0)}
+ for(let y=H-2;y>=0;y--)for(let x0=0;x0<W;x0++){const x=(y%2)?x0:W-1-x0,i=y*W+x,v=grid[i];if(!v)continue;const b=i+W;
+  if(!grid[b]){grid[b]=v;grid[i]=0}else{const d=Math.random()<.5?-1:1;if(x+d>=0&&x+d<W&&!grid[b+d]){grid[b+d]=v;grid[i]=0}else if(x-d>=0&&x-d<W&&!grid[b-d]){grid[b-d]=v;grid[i]=0}}}
+ if(grid.slice(W*(H-1)).every(Boolean)&&grid.filter(Boolean).length>W*H*.7)grid.fill(0);
+ const img=sx.createImageData(W,H);for(let i=0;i<W*H;i++){const v=grid[i];if(v){const l=55+(v%15);const [r,g2,b]=hsl(30+v*.5,85,l);img.data.set([r,g2,b,255],i*4)}}sx.putImageData(img,0,0);requestAnimationFrame(step)})();
+function hsl(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>l-a*Math.max(-1,Math.min(k(n)-3,9-k(n),1));return[255*f(0),255*f(8),255*f(4)]}
+
+// torch
+const dark=document.getElementById('dark');
+dark.addEventListener('pointermove',e=>{const r=dark.getBoundingClientRect();dark.style.setProperty('--mx',(e.clientX-r.left)+'px');dark.style.setProperty('--my',(e.clientY-r.top)+'px')});
+let ang=0;setInterval(()=>{if(dark.matches(':hover'))return;ang+=.05;dark.style.setProperty('--mx',50+Math.cos(ang)*35+'%');dark.style.setProperty('--my',50+Math.sin(ang*1.3)*30+'%')},40);
+
+// lock
+const dials=[...document.querySelectorAll('.dial')],lock=document.getElementById('lock'),esc=document.querySelector('.esc');
+dials.forEach(d=>d.addEventListener('click',()=>{d.textContent=(+d.textContent+1)%10;const code=dials.map(x=>x.textContent).join('');
+ if(code==='1810'){esc.classList.add('open');const r=lock.getBoundingClientRect();boom(r.left+r.width/2,r.top,140)}else esc.classList.remove('open')}));
+lock.addEventListener('dblclick',()=>{lock.classList.add('shake');setTimeout(()=>lock.classList.remove('shake'),400)});
+
+// konami-ish: type "bkk" for a party
+let buf='';addEventListener('keydown',e=>{buf=(buf+e.key).slice(-3).toLowerCase();if(buf==='bkk')for(let k=0;k<8;k++)setTimeout(()=>boom(Math.random()*innerWidth,Math.random()*innerHeight*.6),k*120)});
+</script>
+</body>
+</html>
