@@ -37,8 +37,6 @@ jobs:
           fi
           echo "Base path: '${NEXT_PUBLIC_BASE_PATH}'"
           npm run build
-      - name: Add Bangkok Day static page
-        run: mkdir -p out/bangkok-day && cp bangkok-day/index.html out/bangkok-day/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
